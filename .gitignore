@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Output (each rune gets a subfolder: output/<Name> Rune/)
+output/*/
+
+# Fonts (large binaries)
+fonts/*.ttf
+fonts/*.otf
+
+# C++ build
+renderer/build/
+renderer/third_party/glfw/
+renderer/third_party/glm/
+renderer/third_party/json/
+*.spv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store

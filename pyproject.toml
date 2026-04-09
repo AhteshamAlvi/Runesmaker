@@ -1,0 +1,15 @@
+[project]
+name = "runesmaker"
+version = "0.1.0"
+description = "Generate 3D runes from multilingual translations"
+requires-python = ">=3.11"
+
+dependencies = [
+    "fonttools",
+    "numpy",
+    "Pillow",
+    "cairosvg",
+]
+
+[project.scripts]
+runesmaker = "pipeline.cli:main"
