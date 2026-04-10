@@ -27,28 +27,26 @@ WIKTIONARY_ALIASES = {
     "hakha chin":               ["chin"],
     "inuktut":                  ["inuktitut", "inuit"],
     "jamaican patois":          ["jamaican creole", "jamaican"],
-    "jingpo":                   ["jingpo", "kachin", "jinghpaw"],
     "kalaallisut":              ["greenlandic", "kalaallisut"],
     "kikongo":                  ["kongo", "kikongo"],
     "makassar":                 ["makasar", "makassarese"],
     "marwadi":                  ["marwari", "marwadi"],
-    "meadow mari":              ["mari"],
+    "bikol":                    ["central bikol", "bikol"],
+    "fulani":                   ["fula", "fulfulde", "pulaar", "pular", "fulani"],
+    "hakha chin":               ["hakha chin", "tedim chin", "thado chin", "daai chin", "chin"],
+    "komi":                     ["komi-zyrian", "komi-permyak", "komi"],
+    "meadow mari":              ["eastern mari", "western mari", "mari"],
     "minang":                   ["minangkabau", "minang"],
-    "nahuatl (eastern huasteca)": ["nahuatl"],
-    "nepalbhasa (newari)":      ["newari", "nepal bhasa"],
-    "nko":                      ["nko", "n'ko"],
+    "nepalbhasa (newari)":      ["newari", "nepal bhasa", "newar"],
     "papiamento":               ["papiamentu", "papiamento"],
-    "rundi":                    ["kirundi", "rundi"],
     "swati":                    ["swazi", "swati"],
     "tamazight":                ["central atlas tamazight", "tamazight", "berber"],
     "tshiluba":                 ["luba-kasai", "luba", "tshiluba"],
-    "venetian":                 ["venetian"],
     "waray":                    ["waray-waray", "waray"],
-    "batak karo":               ["karo batak", "batak karo"],
-    "batak simalungun":         ["simalungun", "batak simalungun"],
-    "batak toba":               ["toba batak", "batak toba"],
-    "kiga":                     ["chiga", "kiga"],
-    "ndebele (south)":          ["ndebele"],
+    "batak toba":               ["toba batak", "batak toba", "batak"],
+    "cantonese":                ["cantonese"],
+    "jingpo":                   ["jingpho", "jingpo", "kachin", "jinghpaw"],
+    "ndebele (south)":          ["southern ndebele", "ndebele"],
     "sami (north)":             ["sami", "northern sami"],
     "santali (ol chiki)":       ["santali"],
     "meiteilon (manipuri)":     ["meitei", "manipuri", "meiteilon"],
@@ -99,15 +97,24 @@ def _clean_wikt_translation(raw: str) -> str:
     # If multi-line (sub-dialects), take the first line
     line = raw.split("\n")[0].strip()
 
-    # If line has 'SubDialect: value', take the value part
-    if ":" in line:
+    # If line has 'SubDialect: value', take the value part.
+    # Only split if the colon appears before any parenthesis (avoid
+    # splitting on colons inside romanizations like "(la:)").
+    paren_pos = line.find("(")
+    colon_pos = line.find(":")
+    if colon_pos != -1 and (paren_pos == -1 or colon_pos < paren_pos):
         line = line.split(":", 1)[1].strip()
 
     # Take the first comma-separated option
     line = line.split(",")[0].strip()
 
     # Remove parenthesized content: romanizations, codes, notes
+    # Also handle unclosed parens like "(la:" by matching to end of string
     line = re.sub(r"\s*\([^)]*\)", "", line)
+    line = re.sub(r"\s*\([^)]*$", "", line)
+
+    # Remove stray closing parens
+    line = line.replace(")", "").strip()
 
     # Remove trailing gender markers: m, f, n, m pl, f pl
     line = re.sub(r"\s+[mfn](\s+pl)?$", "", line)
@@ -145,22 +152,54 @@ def _fetch_wiktionary_translations(word: str) -> dict[str, str]:
             soup = BeautifulSoup(resp.text, "html.parser")
             translations = {}
 
-            for item in soup.select("li"):
-                text = item.get_text().strip()
-                if ":" not in text or len(text) > 300:
-                    continue
+            def _direct_text(element):
+                """Get only the direct text of an element, excluding nested lists."""
+                parts = []
+                for child in element.children:
+                    if hasattr(child, "name") and child.name in ("ul", "ol", "dl"):
+                        continue
+                    if hasattr(child, "get_text"):
+                        parts.append(child.get_text())
+                    elif isinstance(child, str):
+                        parts.append(child)
+                return "".join(parts).strip()
 
+            def _parse_li(item):
+                """Parse a single <li> and return (lang, cleaned_text) or None."""
+                text = _direct_text(item)
+                if ":" not in text or len(text) > 300:
+                    return None
                 parts = text.split(":", 1)
                 lang_part = parts[0].strip().lower()
                 val = parts[1].strip()
+                if "please add" in val.lower():
+                    return None
+                if any(c.isdigit() for c in lang_part):
+                    return None
+                cleaned = _clean_wikt_translation(val)
+                if cleaned:
+                    return (lang_part, cleaned)
+                return None
 
-                # Skip placeholders
+            # Parse all <li> elements
+            for item in soup.select("li"):
+                result = _parse_li(item)
+                if result:
+                    translations[result[0]] = result[1]
+
+            # Also parse <dd> elements — Wiktionary nests sub-languages
+            # (e.g. Cantonese, Mandarin) under parent entries using <dl><dd>
+            for dd in soup.select("dd"):
+                text = _direct_text(dd)
+                if ":" not in text or len(text) > 300:
+                    continue
+                parts = text.split(":", 1)
+                lang_part = parts[0].strip().lower()
+                val = parts[1].strip()
                 if "please add" in val.lower():
                     continue
-                # Skip entries where the "language" contains digits (footnotes)
                 if any(c.isdigit() for c in lang_part):
                     continue
-
                 cleaned = _clean_wikt_translation(val)
                 if cleaned:
                     translations[lang_part] = cleaned

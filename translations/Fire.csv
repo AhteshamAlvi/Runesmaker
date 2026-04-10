@@ -5,7 +5,6 @@ Acholi,mac
 Afar,gira
 Afrikaans,vuur
 Albanian,zjarrit
-Alur,mac
 Amharic,እሳት
 Arabic,نار
 Armenian,կրակ
@@ -17,11 +16,8 @@ Azerbaijani,yanğın
 Balinese,api
 Baluchi,آس
 Bambara,tasuma
-Baoulé,si'n
 Bashkir,үрт
 Basque,sua
-Batak Karo,api
-Batak Simalungun,apuy
 Batak Toba,api
 Belarusian,агонь
 Bemba,umulilo
@@ -33,7 +29,7 @@ Bosnian,vatre
 Breton,tan
 Bulgarian,огън
 Buryat,гал
-Cantonese,火
+Cantonese,火燭 / 火烛
 Catalan,foc
 Cebuano,kalayo
 Chamorro,guafi
@@ -52,7 +48,6 @@ Dari,آتَش
 Dhivehi,އަލިފާން
 Dinka,mac
 Dogri,अग्ग
-Dombe,mulilo
 Dutch,vuur
 Dyula,tasuman
 Dzongkha,མེ
@@ -64,7 +59,7 @@ Faroese,eldur
 Fijian,buka
 Filipino,apoy
 Finnish,palo
-Fon,tasuman
+Fon,myɔ
 French,feu
 Frisian,fjoer
 Friulian,fûc
@@ -105,7 +100,6 @@ Kapampangan,api
 Kazakh,өрт
 Khasi,ka ding
 Khmer,ភ្លើង
-Kiga,omuriro
 Kikongo,tiya
 Kinyarwanda,umuriro
 Kituba,tiya
@@ -150,12 +144,10 @@ Minang,api
 Mizo,mei
 Mongolian,гал
 Myanmar (Burmese),မီး
-Nahuatl (Eastern Huasteca),tletl
-Ndau,muriro
 Ndebele (South),umlilo
 Nepalbhasa (Newari),मि
 Nepali,आगो
-NKo,ߕߊߛߎߡߊ
+N'Ko,ߕߊߛߎߡߊ
 Norwegian,ild
 Nuer,mac
 Occitan,fuòc
@@ -171,12 +163,10 @@ Portuguese,fogo
 Punjabi (Gurmukhi),ਅੱਗ
 Punjabi (Shahmukhi),ਅੱਗ
 Quechua,nina
-Qʼeqchiʼ,xam
 Romani,jag
 Romanian,foc
-Rundi,umuriro
 Russian,огонь
-Sami (North),толл
+Sami (North),dolla
 Samoan,afi
 Sango,wâ
 Sanskrit,अग्निः
@@ -229,7 +219,6 @@ Urdu,آگ
 Uyghur,ئوت
 Uzbek,olov
 Venda,mulilo
-Venetian,fogo
 Vietnamese,ngọn lửa
 Waray,kalayo
 Welsh,tân
@@ -239,5 +228,4 @@ Yakut,уот
 Yiddish,פייַער
 Yoruba,ina
 Yucatec Maya,kʼaʼajaleʼ
-Zapotec,guí
 Zulu,umlilo

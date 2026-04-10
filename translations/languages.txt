@@ -4,7 +4,6 @@ Acholi
 Afar
 Afrikaans
 Albanian
-Alur
 Amharic
 Arabic
 Armenian
@@ -16,11 +15,8 @@ Azerbaijani
 Balinese
 Baluchi
 Bambara
-Baoulé
 Bashkir
 Basque
-Batak Karo
-Batak Simalungun
 Batak Toba
 Belarusian
 Bemba
@@ -51,7 +47,6 @@ Dari
 Dhivehi
 Dinka
 Dogri
-Dombe
 Dutch
 Dyula
 Dzongkha
@@ -104,7 +99,6 @@ Kapampangan
 Kazakh
 Khasi
 Khmer
-Kiga
 Kikongo
 Kinyarwanda
 Kituba
@@ -149,12 +143,10 @@ Minang
 Mizo
 Mongolian
 Myanmar (Burmese)
-Nahuatl (Eastern Huasteca)
-Ndau
 Ndebele (South)
 Nepalbhasa (Newari)
 Nepali
-NKo
+N'Ko
 Norwegian
 Nuer
 Occitan
@@ -170,10 +162,8 @@ Portuguese
 Punjabi (Gurmukhi)
 Punjabi (Shahmukhi)
 Quechua
-Qʼeqchiʼ
 Romani
 Romanian
-Rundi
 Russian
 Sami (North)
 Samoan
@@ -228,7 +218,6 @@ Urdu
 Uyghur
 Uzbek
 Venda
-Venetian
 Vietnamese
 Waray
 Welsh
@@ -238,5 +227,4 @@ Yakut
 Yiddish
 Yoruba
 Yucatec Maya
-Zapotec
 Zulu

@@ -131,7 +131,9 @@ class RunesmakerApp:
         self.auto_btn = ttk.Button(auto_btn_row, text="Auto-Translate", command=self._auto_translate)
         self.auto_btn.pack(side="left")
 
-        self.auto_status_var = tk.StringVar(value="Fills ~225 languages via Google Translate + Wiktionary")
+        self.auto_status_var = tk.StringVar(
+            value=f"Fills most of {len(self.languages)} languages via Google Translate + Wiktionary"
+        )
         ttk.Label(auto_frame, textvariable=self.auto_status_var, foreground="gray").pack(anchor="w", pady=(4, 0))
 
         # --- Save & View ---
@@ -338,6 +340,11 @@ class RunesmakerApp:
             f"{total_filled}/{len(self.languages)} total. "
             f"{remaining} remaining for manual entry."
         )
+        # Jump to the first unfilled language
+        for i, lang in enumerate(self.languages):
+            if lang not in self.translations:
+                self.current_index = i
+                break
         self._show_language()
         self._update_dropdown()
 
@@ -375,7 +382,7 @@ class RunesmakerApp:
             messagebox.showwarning(
                 "Incomplete translations",
                 f"{missing} languages are still empty:\n\n{preview}{suffix}\n\n"
-                "All 242 languages must be filled before saving."
+                f"All {len(self.languages)} languages must be filled before saving."
             )
             return
 
