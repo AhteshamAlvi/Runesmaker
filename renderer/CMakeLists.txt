@@ -25,7 +25,7 @@ add_executable(rune_renderer
     src/exporter.cpp
 )
 
-target_include_directories(rune_renderer PRIVATE src)
+target_include_directories(rune_renderer PRIVATE src third_party)
 target_link_libraries(rune_renderer PRIVATE
     Vulkan::Vulkan
     glfw
@@ -33,9 +33,23 @@ target_link_libraries(rune_renderer PRIVATE
     nlohmann_json::nlohmann_json
 )
 
-# Compile shaders
-find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin)
+# macOS: ensure GLFW's dlopen("libvulkan.1.dylib") can find the Vulkan loader
+# by adding its directory to the runtime search path
+if(APPLE)
+    get_target_property(VULKAN_LIB Vulkan::Vulkan IMPORTED_LOCATION)
+    if(VULKAN_LIB)
+        get_filename_component(VULKAN_LIB_DIR "${VULKAN_LIB}" DIRECTORY)
+        set_target_properties(rune_renderer PROPERTIES
+            BUILD_RPATH "${VULKAN_LIB_DIR}"
+            INSTALL_RPATH "${VULKAN_LIB_DIR}"
+        )
+    endif()
+endif()
+
+# Compile shaders — find glslc from PATH or VULKAN_SDK
+find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin /opt/homebrew/bin /usr/local/bin)
 if(GLSLC)
+    message(STATUS "Found glslc: ${GLSLC}")
     set(SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
     set(SPIRV_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
     file(MAKE_DIRECTORY ${SPIRV_DIR})
@@ -55,4 +69,6 @@ if(GLSLC)
         ${SPIRV_DIR}/rune.frag.spv
     )
     add_dependencies(rune_renderer shaders)
+else()
+    message(WARNING "glslc not found — shaders will not be compiled")
 endif()

@@ -560,16 +560,26 @@ class RunesmakerApp:
 
     def _run_render(self):
         try:
+            # MoltenVK on macOS: tell the Vulkan loader where to find the ICD driver
+            # and ensure GLFW can dlopen libvulkan at runtime
+            env = os.environ.copy()
+            icd_path = "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+            if os.path.isfile(icd_path):
+                env["VK_ICD_FILENAMES"] = icd_path
+                env["VK_DRIVER_FILES"] = icd_path
+            # GLFW uses dlopen to find libvulkan — help it find the Homebrew copy
+            lib_path = "/opt/homebrew/lib"
+            if os.path.isdir(lib_path):
+                existing = env.get("DYLD_LIBRARY_PATH", "")
+                env["DYLD_LIBRARY_PATH"] = f"{lib_path}:{existing}" if existing else lib_path
             result = subprocess.run(
                 [RENDERER_BIN, self.generated_json_path],
-                capture_output=True, text=True, timeout=30
+                capture_output=True, text=True, env=env
             )
-            if result.returncode != 0:
-                self.root.after(0, self._render_error, result.stderr or "Renderer exited with error")
+            if result.returncode != 0 and result.stderr and result.stderr.strip():
+                self.root.after(0, self._render_error, result.stderr.strip())
             else:
                 self.root.after(0, self._render_done)
-        except subprocess.TimeoutExpired:
-            self.root.after(0, self._render_error, "Renderer timed out")
         except Exception as e:
             self.root.after(0, self._render_error, str(e))
 

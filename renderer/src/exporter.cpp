@@ -1,19 +1,13 @@
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "../third_party/stb_image_write.h"
 #include "exporter.h"
-#include <fstream>
-
-// TODO: Use stb_image_write for proper PNG export
 
 namespace Exporter {
 
 bool save_png(const std::string& path, const uint8_t* pixels,
               uint32_t width, uint32_t height) {
-    // Placeholder — will integrate stb_image_write
-    (void)pixels;
-    (void)width;
-    (void)height;
-
-    std::ofstream f(path);
-    return f.is_open();
+    // RGBA, 4 bytes per pixel
+    return stbi_write_png(path.c_str(), width, height, 4, pixels, width * 4) != 0;
 }
 
 } // namespace Exporter

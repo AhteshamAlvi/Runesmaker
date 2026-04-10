@@ -23,4 +23,6 @@ private:
     std::vector<uint32_t> m_indices;
 
     void extrude(const std::vector<std::array<float, 2>>& contour, float depth);
+    void triangulateCap(const std::vector<std::array<float, 2>>& contour,
+                        float z, const std::array<float, 3>& normal, bool flip);
 };
