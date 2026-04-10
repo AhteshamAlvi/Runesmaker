@@ -9,6 +9,7 @@ dependencies = [
     "numpy",
     "Pillow",
     "cairosvg",
+    "deep-translator",
 ]
 
 [project.scripts]

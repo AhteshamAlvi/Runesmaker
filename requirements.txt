@@ -2,3 +2,4 @@ fonttools
 numpy
 Pillow
 cairosvg
+deep-translator

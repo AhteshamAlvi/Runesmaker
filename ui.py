@@ -32,29 +32,49 @@ def load_languages(path):
     return languages
 
 
+def _is_dark_mode():
+    """Detect if the system is in dark mode (macOS)."""
+    try:
+        import subprocess as sp
+        result = sp.run(
+            ["defaults", "read", "-g", "AppleInterfaceStyle"],
+            capture_output=True, text=True, timeout=2
+        )
+        return result.stdout.strip().lower() == "dark"
+    except Exception:
+        return False
+
+
 class RunesmakerApp:
     def __init__(self, root):
         self.root = root
+        self.dark_mode = _is_dark_mode()
+
+        # --- Window setup ---
         self.root.title("Runesmaker")
-        self.root.geometry("620x600")
+        self.root.geometry("620x660")
         self.root.resizable(True, True)
 
+        # --- IMPORTANT: Initialize state FIRST ---
         self.languages = load_languages(LANGUAGES_FILE)
-        self.translations = {}  # {language_name: translation_text}
+        self.translations = {}
         self.current_index = 0
         self.csv_path = None
         self.generated_svg_path = None
         self.generated_json_path = None
 
-        self._build_ui()
+        # --- Build UI directly into root (no Canvas scroll wrapper needed) ---
+        self._build_ui(self.root)
+
+        # --- THEN update UI ---
         self._show_language()
         self._update_dropdown()
 
-    def _build_ui(self):
-        pad = {"padx": 10, "pady": 5}
+    def _build_ui(self, parent):
+        pad = {"padx": 10, "pady": 4}
 
         # --- Rune Name ---
-        name_frame = ttk.LabelFrame(self.root, text="Rune Name (press Enter to load existing)", padding=10)
+        name_frame = ttk.LabelFrame(parent, text="Rune Name (press Enter to load existing)", padding=8)
         name_frame.pack(fill="x", **pad)
 
         self.name_var = tk.StringVar(value="")
@@ -63,7 +83,7 @@ class RunesmakerApp:
         name_entry.bind("<Return>", lambda e: self._load_rune())
 
         # --- Language Dropdown ---
-        dropdown_frame = ttk.LabelFrame(self.root, text="Language Browser", padding=10)
+        dropdown_frame = ttk.LabelFrame(parent, text="Language Browser", padding=8)
         dropdown_frame.pack(fill="x", **pad)
 
         self.dropdown_var = tk.StringVar()
@@ -73,7 +93,7 @@ class RunesmakerApp:
         self.dropdown.bind("<<ComboboxSelected>>", self._on_dropdown_select)
 
         # --- Translation Entry ---
-        entry_frame = ttk.LabelFrame(self.root, text="Translation Entry", padding=10)
+        entry_frame = ttk.LabelFrame(parent, text="Translation Entry", padding=8)
         entry_frame.pack(fill="x", **pad)
 
         self.lang_label = ttk.Label(entry_frame, text="", font=("", 14, "bold"))
@@ -81,7 +101,7 @@ class RunesmakerApp:
 
         self.trans_var = tk.StringVar()
         self.trans_entry = ttk.Entry(entry_frame, textvariable=self.trans_var, font=("", 16))
-        self.trans_entry.pack(fill="x", pady=(5, 10))
+        self.trans_entry.pack(fill="x", pady=(4, 8))
         self.trans_entry.bind("<Return>", lambda e: self._next())
 
         nav_row = ttk.Frame(entry_frame)
@@ -91,27 +111,47 @@ class RunesmakerApp:
         ttk.Button(nav_row, text="Next \u2192", command=self._next).pack(side="left")
 
         self.progress_label = ttk.Label(entry_frame, text="")
-        self.progress_label.pack(anchor="e", pady=(5, 0))
+        self.progress_label.pack(anchor="e", pady=(4, 0))
 
         self.progress_bar = ttk.Progressbar(entry_frame, maximum=len(self.languages))
         self.progress_bar.pack(fill="x", pady=(2, 0))
 
-        # --- Save ---
-        save_frame = ttk.Frame(self.root)
-        save_frame.pack(fill="x", padx=10, pady=(5, 0))
+        # --- Auto-Translate ---
+        auto_frame = ttk.LabelFrame(parent, text="Auto-Translate", padding=8)
+        auto_frame.pack(fill="x", **pad)
+
+        word_row = ttk.Frame(auto_frame)
+        word_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(word_row, text="Word:").pack(side="left")
+        self.word_var = tk.StringVar()
+        ttk.Entry(word_row, textvariable=self.word_var, font=("", 14)).pack(side="left", fill="x", expand=True, padx=(8, 0))
+
+        auto_btn_row = ttk.Frame(auto_frame)
+        auto_btn_row.pack(fill="x")
+        self.auto_btn = ttk.Button(auto_btn_row, text="Auto-Translate", command=self._auto_translate)
+        self.auto_btn.pack(side="left")
+
+        self.auto_status_var = tk.StringVar(value="Fills ~133 languages via Google Translate")
+        ttk.Label(auto_frame, textvariable=self.auto_status_var, foreground="gray").pack(anchor="w", pady=(4, 0))
+
+        # --- Save & View ---
+        save_frame = ttk.Frame(parent)
+        save_frame.pack(fill="x", padx=10, pady=(0, 4))
 
         self.save_btn = ttk.Button(save_frame, text="Save CSV", command=self._save)
         self.save_btn.pack(side="left")
+
+        ttk.Button(save_frame, text="View All", command=self._view_all).pack(side="left", padx=10)
 
         self.save_status_var = tk.StringVar(value="")
         ttk.Label(save_frame, textvariable=self.save_status_var, foreground="gray").pack(side="left", padx=10)
 
         # --- Generate & Render ---
-        action_frame = ttk.LabelFrame(self.root, text="Generate & Render", padding=10)
+        action_frame = ttk.LabelFrame(parent, text="Generate & Render", padding=8)
         action_frame.pack(fill="x", **pad)
 
         blend_row = ttk.Frame(action_frame)
-        blend_row.pack(fill="x", pady=(0, 8))
+        blend_row.pack(fill="x", pady=(0, 6))
         ttk.Label(blend_row, text="Blend:").pack(side="left")
         self.blend_var = tk.StringVar(value="mean")
         ttk.Radiobutton(blend_row, text="mean", variable=self.blend_var, value="mean").pack(side="left", padx=(10, 5))
@@ -125,8 +165,7 @@ class RunesmakerApp:
         self.render_btn.pack(side="left", padx=10)
 
         self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(action_frame, textvariable=self.status_var, foreground="gray").pack(anchor="w", pady=(5, 0))
-
+        ttk.Label(action_frame, textvariable=self.status_var, foreground="gray").pack(anchor="w", pady=(4, 0))
 
     # --- Dropdown ---
 
@@ -142,7 +181,6 @@ class RunesmakerApp:
             items.append(f"{marker}  {lang}")
         self.dropdown["values"] = items
 
-        # Set dropdown selection to current language
         for dd_idx, (lang_idx, _) in enumerate(self._dropdown_order):
             if lang_idx == self.current_index:
                 self.dropdown_var.set(items[dd_idx])
@@ -159,12 +197,11 @@ class RunesmakerApp:
     # --- Load existing rune ---
 
     def _load_rune(self):
-        """Load an existing rune's CSV and preview when Enter is pressed on the name field."""
+        """Load an existing rune's CSV and preview when Enter is pressed."""
         name = self.name_var.get().strip()
         if not name:
             return
 
-        # Try to load CSV
         csv_path = os.path.join(TRANSLATIONS_DIR, f"{name}.csv")
         if os.path.isfile(csv_path):
             self.translations.clear()
@@ -182,7 +219,6 @@ class RunesmakerApp:
             filled = len(self.translations)
             self.save_status_var.set(f"Loaded {filled} translations from {csv_path}")
         else:
-            # New rune — clear everything
             self.translations.clear()
             self.csv_path = None
             self.current_index = 0
@@ -190,7 +226,6 @@ class RunesmakerApp:
             self._update_dropdown()
             self.save_status_var.set(f"New rune: {name}")
 
-        # Try to load existing preview
         rune_dir = os.path.join(OUTPUT_DIR, f"{name} Rune")
         svg_path = os.path.join(rune_dir, f"{name}.svg")
         json_path = os.path.join(rune_dir, f"{name}.json")
@@ -247,6 +282,58 @@ class RunesmakerApp:
             self.current_index -= 1
         self._show_language()
 
+    # --- Auto-Translate ---
+
+    def _auto_translate(self):
+        self._save_current()
+
+        word = self.word_var.get().strip()
+        if not word:
+            messagebox.showwarning("Missing word", "Enter a word to translate.")
+            return
+
+        self.auto_btn.config(state="disabled")
+        self.auto_status_var.set("Auto-translating... 0%")
+
+        skip = set(self.translations.keys())
+        threading.Thread(target=self._run_auto_translate, args=(word, skip), daemon=True).start()
+
+    def _run_auto_translate(self, word, skip):
+        try:
+            from pipeline.auto_translate import auto_translate
+
+            def on_progress(done, total):
+                pct = int(done / total * 100)
+                self.root.after(0, self.auto_status_var.set, f"Auto-translating... {pct}% ({done}/{total})")
+
+            results = auto_translate(word, self.languages, skip=skip, on_progress=on_progress)
+            self.root.after(0, self._auto_translate_done, results)
+
+        except Exception as e:
+            self.root.after(0, self._auto_translate_error, str(e))
+
+    def _auto_translate_done(self, results):
+        filled_count = 0
+        for lang, text in results.items():
+            if lang not in self.translations:
+                self.translations[lang] = text
+                filled_count += 1
+
+        self.auto_btn.config(state="normal")
+        total_filled = len(self.translations)
+        remaining = len(self.languages) - total_filled
+        self.auto_status_var.set(
+            f"Auto-filled {filled_count} languages. "
+            f"{total_filled}/{len(self.languages)} total. "
+            f"{remaining} remaining for manual entry."
+        )
+        self._show_language()
+        self._update_dropdown()
+
+    def _auto_translate_error(self, msg):
+        self.auto_btn.config(state="normal")
+        self.auto_status_var.set(f"Error: {msg}")
+
     # --- Save CSV ---
 
     def _write_csv(self, path):
@@ -266,14 +353,105 @@ class RunesmakerApp:
             messagebox.showwarning("Missing name", "Enter a rune name first.")
             return
 
-        if not self.translations:
-            messagebox.showwarning("No translations", "Enter at least one translation first.")
+        filled = len(self.translations)
+        total = len(self.languages)
+        missing = total - filled
+
+        if missing > 0:
+            missing_langs = [lang for lang in self.languages if lang not in self.translations]
+            preview = ", ".join(missing_langs[:5])
+            suffix = f" and {len(missing_langs) - 5} more..." if len(missing_langs) > 5 else ""
+            messagebox.showwarning(
+                "Incomplete translations",
+                f"{missing} languages are still empty:\n\n{preview}{suffix}\n\n"
+                "All 242 languages must be filled before saving."
+            )
             return
 
         self.csv_path = os.path.join(TRANSLATIONS_DIR, f"{name}.csv")
         self._write_csv(self.csv_path)
-        filled = len(self.translations)
         self.save_status_var.set(f"Saved {filled} translations to {self.csv_path}")
+
+    # --- View All (Treeview — native scrolling, fast, dark-mode aware) ---
+
+    def _view_all(self):
+        """Open a window with all languages using ttk.Treeview for native scroll."""
+        self._save_current()
+
+        name = self.name_var.get().strip() or "Translations"
+
+        win = tk.Toplevel(self.root)
+        win.title(f"All Translations -- {name}")
+        win.geometry("750x600")
+        win.resizable(True, True)
+
+        # Header
+        header = ttk.Frame(win)
+        header.pack(fill="x", padx=10, pady=(10, 5))
+
+        filled = len(self.translations)
+        total = len(self.languages)
+        ttk.Label(header, text=f"{filled} / {total} filled", font=("", 12)).pack(side="left")
+
+        # Container for Treeview + scrollbar
+        container = ttk.Frame(win)
+        container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Configure style for dark mode
+        style = ttk.Style(win)
+        if self.dark_mode:
+            style.configure("ViewAll.Treeview",
+                            background="#1e1e1e",
+                            foreground="white",
+                            fieldbackground="#1e1e1e",
+                            rowheight=26,
+                            font=("", 12))
+            style.configure("ViewAll.Treeview.Heading",
+                            background="#333333",
+                            foreground="white",
+                            font=("", 12, "bold"))
+            style.map("ViewAll.Treeview",
+                       background=[("selected", "#3a3a3a")],
+                       foreground=[("selected", "white")])
+        else:
+            style.configure("ViewAll.Treeview",
+                            rowheight=26,
+                            font=("", 12))
+            style.configure("ViewAll.Treeview.Heading",
+                            font=("", 12, "bold"))
+
+        columns = ("num", "status", "language", "translation")
+        tree = ttk.Treeview(container, columns=columns, show="headings",
+                            selectmode="none", style="ViewAll.Treeview")
+
+        tree.heading("num", text="#", anchor="w")
+        tree.heading("status", text="", anchor="center")
+        tree.heading("language", text="Language", anchor="w")
+        tree.heading("translation", text="Translation", anchor="w")
+
+        tree.column("num", width=40, minwidth=30, stretch=False)
+        tree.column("status", width=30, minwidth=30, stretch=False)
+        tree.column("language", width=220, minwidth=150, stretch=False)
+        tree.column("translation", width=400, minwidth=200, stretch=True)
+
+        # Tag colors — bright enough for both light and dark
+        tree.tag_configure("filled", foreground="#2ecc40")
+        tree.tag_configure("empty", foreground="#ff4136")
+
+        for i, lang in enumerate(self.languages):
+            text = self.translations.get(lang, "")
+            marker = "\u2713" if text else "\u2717"
+            tag = "filled" if text else "empty"
+            display_text = text if text else "(empty)"
+            tree.insert("", "end",
+                        values=(f"{i+1}", marker, lang, display_text),
+                        tags=(tag,))
+
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+
+        tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
     # --- Generate ---
 
@@ -289,7 +467,6 @@ class RunesmakerApp:
             messagebox.showwarning("No translations", "Enter at least one translation first.")
             return
 
-        # Always save CSV before generating
         self.csv_path = os.path.join(TRANSLATIONS_DIR, f"{name}.csv")
         self._write_csv(self.csv_path)
 
@@ -308,7 +485,6 @@ class RunesmakerApp:
             from pipeline.blend import blend_rune
             from pipeline.export import save_svg, save_json
 
-            # Output goes into output/<name> Rune/
             rune_dir = os.path.join(OUTPUT_DIR, f"{name} Rune")
             os.makedirs(rune_dir, exist_ok=True)
 
@@ -362,7 +538,6 @@ class RunesmakerApp:
 
         self.render_btn.config(state="disabled")
         self.status_var.set("Rendering...")
-
         threading.Thread(target=self._run_render, daemon=True).start()
 
     def _run_render(self):
@@ -395,7 +570,7 @@ class RunesmakerApp:
         name = self.name_var.get().strip() or "Rune"
 
         win = tk.Toplevel(self.root)
-        win.title(f"Preview — {name}")
+        win.title(f"Preview -- {name}")
         win.geometry("500x520")
         win.resizable(True, True)
 
@@ -403,8 +578,10 @@ class RunesmakerApp:
             import cairosvg
             from PIL import Image, ImageTk
 
-            png_data = cairosvg.svg2png(url=svg_path, output_width=460, output_height=460,
-                                        background_color="black")
+            png_data = cairosvg.svg2png(
+                url=svg_path, output_width=460, output_height=460,
+                background_color="black"
+            )
             image = Image.open(io.BytesIO(png_data))
             photo = ImageTk.PhotoImage(image)
 
@@ -413,8 +590,11 @@ class RunesmakerApp:
             label._photo = photo
 
         except ImportError:
-            ttk.Label(win, text=f"SVG saved to:\n{svg_path}\n\n(Install cairosvg + Pillow for preview)",
-                      wraplength=450).pack(padx=20, pady=20)
+            ttk.Label(
+                win,
+                text=f"SVG saved to:\n{svg_path}\n\n(Install cairosvg + Pillow for preview)",
+                wraplength=450
+            ).pack(padx=20, pady=20)
         except Exception as e:
             ttk.Label(win, text=f"Preview error: {e}", wraplength=450).pack(padx=20, pady=20)
 
