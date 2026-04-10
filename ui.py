@@ -131,7 +131,7 @@ class RunesmakerApp:
         self.auto_btn = ttk.Button(auto_btn_row, text="Auto-Translate", command=self._auto_translate)
         self.auto_btn.pack(side="left")
 
-        self.auto_status_var = tk.StringVar(value="Fills ~133 languages via Google Translate")
+        self.auto_status_var = tk.StringVar(value="Fills ~225 languages via Google Translate + Wiktionary")
         ttk.Label(auto_frame, textvariable=self.auto_status_var, foreground="gray").pack(anchor="w", pady=(4, 0))
 
         # --- Save & View ---
@@ -267,6 +267,19 @@ class RunesmakerApp:
 
     def _next(self):
         self._save_current()
+        # Jump to the next unfilled language (in order), or the next one if all filled
+        for i in range(self.current_index + 1, len(self.languages)):
+            if self.languages[i] not in self.translations:
+                self.current_index = i
+                self._show_language()
+                return
+        # Nothing unfilled after current — wrap around and check from the start
+        for i in range(0, self.current_index):
+            if self.languages[i] not in self.translations:
+                self.current_index = i
+                self._show_language()
+                return
+        # All filled — just go to the next one sequentially
         if self.current_index < len(self.languages) - 1:
             self.current_index += 1
         self._show_language()
@@ -295,10 +308,9 @@ class RunesmakerApp:
         self.auto_btn.config(state="disabled")
         self.auto_status_var.set("Auto-translating... 0%")
 
-        skip = set(self.translations.keys())
-        threading.Thread(target=self._run_auto_translate, args=(word, skip), daemon=True).start()
+        threading.Thread(target=self._run_auto_translate, args=(word,), daemon=True).start()
 
-    def _run_auto_translate(self, word, skip):
+    def _run_auto_translate(self, word):
         try:
             from pipeline.auto_translate import auto_translate
 
@@ -306,7 +318,7 @@ class RunesmakerApp:
                 pct = int(done / total * 100)
                 self.root.after(0, self.auto_status_var.set, f"Auto-translating... {pct}% ({done}/{total})")
 
-            results = auto_translate(word, self.languages, skip=skip, on_progress=on_progress)
+            results = auto_translate(word, self.languages, on_progress=on_progress)
             self.root.after(0, self._auto_translate_done, results)
 
         except Exception as e:
@@ -315,9 +327,8 @@ class RunesmakerApp:
     def _auto_translate_done(self, results):
         filled_count = 0
         for lang, text in results.items():
-            if lang not in self.translations:
-                self.translations[lang] = text
-                filled_count += 1
+            self.translations[lang] = text
+            filled_count += 1
 
         self.auto_btn.config(state="normal")
         total_filled = len(self.translations)

@@ -3,3 +3,5 @@ numpy
 Pillow
 cairosvg
 deep-translator
+requests
+beautifulsoup4

@@ -10,6 +10,8 @@ dependencies = [
     "Pillow",
     "cairosvg",
     "deep-translator",
+    "requests",
+    "beautifulsoup4",
 ]
 
 [project.scripts]
