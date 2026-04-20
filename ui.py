@@ -63,6 +63,7 @@ class RunesmakerApp:
         self.generated_svg_path = None
         self.generated_json_path = None
 
+
         # --- Build UI directly into root (no Canvas scroll wrapper needed) ---
         self._build_ui(self.root)
 
@@ -132,7 +133,7 @@ class RunesmakerApp:
         self.auto_btn.pack(side="left")
 
         self.auto_status_var = tk.StringVar(
-            value=f"Fills most of {len(self.languages)} languages via Google Translate + Wiktionary"
+            value=f"Covers {len(self.languages)} languages via Google Translate"
         )
         ttk.Label(auto_frame, textvariable=self.auto_status_var, foreground="gray").pack(anchor="w", pady=(4, 0))
 

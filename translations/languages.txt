@@ -1,230 +1,132 @@
-Abkhaz
-Acehnese
-Acholi
-Afar
-Afrikaans
-Albanian
-Amharic
-Arabic
-Armenian
-Assamese
-Avar
-Awadhi
-Aymara
-Azerbaijani
-Balinese
-Baluchi
-Bambara
-Bashkir
-Basque
-Batak Toba
-Belarusian
-Bemba
-Bengali
-Betawi
-Bhojpuri
-Bikol
-Bosnian
-Breton
-Bulgarian
-Buryat
-Cantonese
-Catalan
-Cebuano
-Chamorro
-Chechen
-Chichewa
-Chinese (Simplified)
-Chinese (Traditional)
-Chuukese
-Chuvash
-Corsican
-Crimean Tatar
-Croatian
-Czech
-Danish
-Dari
-Dhivehi
-Dinka
-Dogri
-Dutch
-Dyula
-Dzongkha
-English
-Esperanto
-Estonian
-Ewe
-Faroese
-Fijian
-Filipino
-Finnish
-Fon
-French
-Frisian
-Friulian
-Fulani
-Ga
-Galician
-Georgian
-German
-Greek
-Guarani
-Gujarati
-Haitian Creole
-Hakha Chin
-Hausa
-Hawaiian
-Hebrew
-Hiligaynon
-Hindi
-Hmong
-Hungarian
-Hunsrik
-Iban
-Icelandic
-Igbo
-Ilocano
-Indonesian
-Inuktut
-Irish
-Italian
-Jamaican Patois
-Japanese
-Javanese
-Jingpo
-Kalaallisut
-Kannada
-Kanuri
-Kapampangan
-Kazakh
-Khasi
-Khmer
-Kikongo
-Kinyarwanda
-Kituba
-Kokborok
-Komi
-Konkani
-Korean
-Krio
-Kurdish
-Kyrgyz
-Lao
-Latgalian
-Latin
-Latvian
-Ligurian
-Limburgish
-Lingala
-Lithuanian
-Lombard
-Luganda
-Luo
-Luxembourgish
-Macedonian
-Madurese
-Maithili
-Makassar
-Malagasy
-Malay
-Malay (Jawi)
-Malayalam
-Maltese
-Mam
-Manx
-Maori
-Marathi
-Marshallese
-Marwadi
-Mauritian Creole
-Meadow Mari
-Meiteilon (Manipuri)
-Minang
-Mizo
-Mongolian
-Myanmar (Burmese)
-Ndebele (South)
-Nepalbhasa (Newari)
-Nepali
-N'Ko
-Norwegian
-Nuer
-Occitan
-Odia (Oriya)
-Oromo
-Ossetian
-Pangasinan
-Papiamento
-Pashto
-Persian
-Polish
-Portuguese
-Punjabi (Gurmukhi)
-Punjabi (Shahmukhi)
-Quechua
-Romani
-Romanian
-Russian
-Sami (North)
-Samoan
-Sango
-Sanskrit
-Santali (Ol Chiki)
-Scots Gaelic
-Sepedi
-Serbian
-Sesotho
-Seychellois Creole
-Shan
-Shona
-Sicilian
-Silesian
-Sindhi
-Sinhala
-Slovak
-Slovenian
-Somali
-Spanish
-Sundanese
-Susu
-Swahili
-Swati
-Swedish
-Tahitian
-Tajik
-Tamazight
-Tamil
-Tatar
-Telugu
-Tetum
-Thai
-Tibetan
-Tigrinya
-Tiv
-Tok Pisin
-Tongan
-Tshiluba
-Tsonga
-Tswana
-Tulu
-Tumbuka
-Turkish
-Turkmen
-Tuvan
-Twi
-Udmurt
-Ukrainian
-Urdu
-Uyghur
-Uzbek
-Venda
-Vietnamese
-Waray
-Welsh
-Wolof
-Xhosa
-Yakut
-Yiddish
-Yoruba
-Yucatec Maya
-Zulu
+Afrikaans	Afrikaans
+Albanian	Albanian
+Amharic	Amharic
+Arabic	Arabic
+Armenian	Armenian
+Assamese	Assamese
+Aymara	Aymara
+Azerbaijani	Azerbaijani
+Bambara	Bambara
+Basque	Basque
+Belarusian	Belarusian
+Bengali	Bengali
+Bhojpuri	Bhojpuri
+Bosnian	Bosnian
+Bulgarian	Bulgarian
+Catalan	Catalan
+Cebuano	Cebuano
+Chichewa	Chichewa
+Chinese (Simplified)	Chinese (Simplified)
+Chinese (Traditional)	Chinese (Traditional)
+Corsican	Corsican
+Croatian	Croatian
+Czech	Czech
+Danish	Danish
+Dhivehi	Dhivehi
+Dogri	Dogri
+Dutch	Dutch
+English	English
+Esperanto	Esperanto
+Estonian	Estonian
+Ewe	Ewe
+Filipino	Filipino
+Finnish	Finnish
+French	French
+Frisian	Frisian
+Galician	Galician
+Georgian	Georgian
+German	German
+Greek	Greek
+Guarani	Guarani
+Gujarati	Gujarati
+Haitian Creole	Haitian Creole
+Hausa	Hausa
+Hawaiian	Hawaiian
+Hebrew	Hebrew
+Hindi	Hindi
+Hmong	Hmong
+Hungarian	Hungarian
+Icelandic	Icelandic
+Igbo	Igbo
+Ilocano	Ilocano
+Indonesian	Indonesian
+Irish	Irish
+Italian	Italian
+Japanese	Japanese
+Javanese	Javanese
+Kannada	Kannada
+Kazakh	Kazakh
+Khmer	Khmer
+Kinyarwanda	Kinyarwanda
+Konkani	Konkani
+Korean	Korean
+Krio	Krio
+Kurdish	Kurdish
+Kyrgyz	Kyrgyz
+Lao	Lao
+Latin	Latin
+Latvian	Latvian
+Lingala	Lingala
+Lithuanian	Lithuanian
+Luganda	Luganda
+Luxembourgish	Luxembourgish
+Macedonian	Macedonian
+Maithili	Maithili
+Malagasy	Malagasy
+Malay	Malay
+Malayalam	Malayalam
+Maltese	Maltese
+Maori	Maori
+Marathi	Marathi
+Meiteilon (Manipuri)	Meiteilon (Manipuri)
+Mizo	Mizo
+Mongolian	Mongolian
+Myanmar (Burmese)	Myanmar (Burmese)
+Nepali	Nepali
+Norwegian	Norwegian
+Odia (Oriya)	Odia (Oriya)
+Oromo	Oromo
+Pashto	Pashto
+Persian	Persian
+Polish	Polish
+Portuguese	Portuguese
+Punjabi (Gurmukhi)	Punjabi (Gurmukhi)
+Quechua	Quechua
+Romanian	Romanian
+Russian	Russian
+Samoan	Samoan
+Sanskrit	Sanskrit
+Scots Gaelic	Scots Gaelic
+Sepedi	Sepedi
+Serbian	Serbian
+Sesotho	Sesotho
+Shona	Shona
+Sindhi	Sindhi
+Sinhala	Sinhala
+Slovak	Slovak
+Slovenian	Slovenian
+Somali	Somali
+Spanish	Spanish
+Sundanese	Sundanese
+Swahili	Swahili
+Swedish	Swedish
+Tajik	Tajik
+Tamil	Tamil
+Tatar	Tatar
+Telugu	Telugu
+Thai	Thai
+Tigrinya	Tigrinya
+Tsonga	Tsonga
+Turkish	Turkish
+Turkmen	Turkmen
+Twi	Twi
+Ukrainian	Ukrainian
+Urdu	Urdu
+Uyghur	Uyghur
+Uzbek	Uzbek
+Vietnamese	Vietnamese
+Welsh	Welsh
+Xhosa	Xhosa
+Yiddish	Yiddish
+Yoruba	Yoruba
+Zulu	Zulu
