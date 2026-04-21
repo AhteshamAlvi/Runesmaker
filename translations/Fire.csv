@@ -1,70 +1,36 @@
 language,translation
-Abkhaz,амца
-Acehnese,apuy
-Acholi,mac
-Afar,gira
 Afrikaans,vuur
 Albanian,zjarrit
 Amharic,እሳት
 Arabic,نار
 Armenian,կրակ
 Assamese,অগ্নি
-Avar,цӏа
-Awadhi,आगि
 Aymara,nina
 Azerbaijani,yanğın
-Balinese,api
-Baluchi,آس
 Bambara,tasuma
-Bashkir,үрт
 Basque,sua
-Batak Toba,api
 Belarusian,агонь
-Bemba,umulilo
 Bengali,আগুন
-Betawi,pecat
 Bhojpuri,आगि
-Bikol,kalayo
-Bosnian,vatre
-Breton,tan
 Bulgarian,огън
-Buryat,гал
-Cantonese,火燭 / 火烛
 Catalan,foc
 Cebuano,kalayo
-Chamorro,guafi
-Chechen,цӏе
-Chichewa,moto
-Chinese (Simplified),火
 Chinese (Traditional),火
-Chuukese,ekkei
-Chuvash,пушар
 Corsican,focu
-Crimean Tatar,ot
 Croatian,vatra
 Czech,oheň
 Danish,brand
-Dari,آتَش
 Dhivehi,އަލިފާން
-Dinka,mac
 Dogri,अग्ग
 Dutch,vuur
-Dyula,tasuman
-Dzongkha,མེ
 English,fire
 Esperanto,fajro
 Estonian,tulekahju
 Ewe,dzo
-Faroese,eldur
-Fijian,buka
 Filipino,apoy
 Finnish,palo
-Fon,myɔ
 French,feu
 Frisian,fjoer
-Friulian,fûc
-Fulani,yite
-Ga,la
 Galician,lume
 Georgian,ცეცხლი
 German,Feuer
@@ -72,160 +38,86 @@ Greek,φωτιά
 Guarani,tata
 Gujarati,આગ
 Haitian Creole,dife
-Hakha Chin,mei
 Hausa,wuta
 Hawaiian,ahi ahi
 Hebrew,אֵשׁ
-Hiligaynon,kalayo
 Hindi,आग
 Hmong,hluav taws
 Hungarian,Tűz
-Hunsrik,Feier
-Iban,api
 Icelandic,eldi
 Igbo,ọkụ
 Ilocano,apuy
 Indonesian,api
-Inuktut,ᐃᑯᒪ
 Irish,tine
 Italian,fuoco
-Jamaican Patois,faya
 Japanese,火
 Javanese,geni
-Jingpo,wan
-Kalaallisut,inneq
 Kannada,ಬೆಂಕಿ
-Kanuri,kánnu
-Kapampangan,api
 Kazakh,өрт
-Khasi,ka ding
 Khmer,ភ្លើង
-Kikongo,tiya
 Kinyarwanda,umuriro
-Kituba,tiya
-Kokborok,hor
-Komi,би
 Konkani,उजो
 Korean,불
 Krio,faya
 Kurdish,ئاگر
 Kyrgyz,от
 Lao,ໄຟ
-Latgalian,kruosne
 Latin,ignis
 Latvian,uguns
-Ligurian,feugu
-Limburgish,vuur
-Lingala,moto
 Lithuanian,gaisras
-Lombard,foeugh
 Luganda,omuliro
-Luo,mach
 Luxembourgish,Feier
 Macedonian,оган
-Madurese,apoy
 Maithili,आगि
-Makassar,pepe
 Malagasy,AFO
-Malay,kebakaran
-Malay (Jawi),kebakaran
 Malayalam,തീ
 Maltese,nar
-Mam,q'aq'
-Manx,çhenney
 Maori,ahi
 Marathi,आग
-Marshallese,kijeek
-Marwadi,अगनी
-Mauritian Creole,tife
-Meadow Mari,тул
 Meiteilon (Manipuri),ꯃꯩ
-Minang,api
 Mizo,mei
 Mongolian,гал
 Myanmar (Burmese),မီး
-Ndebele (South),umlilo
-Nepalbhasa (Newari),मि
 Nepali,आगो
-N'Ko,ߕߊߛߎߡߊ
 Norwegian,ild
-Nuer,mac
-Occitan,fuòc
 Odia (Oriya),ଅଗ୍ନି
 Oromo,abidda
-Ossetian,арт
-Pangasinan,apoy
-Papiamento,kandela
 Pashto,اور
 Persian,آتش
 Polish,ogień
 Portuguese,fogo
 Punjabi (Gurmukhi),ਅੱਗ
-Punjabi (Shahmukhi),ਅੱਗ
 Quechua,nina
-Romani,jag
 Romanian,foc
 Russian,огонь
-Sami (North),dolla
 Samoan,afi
-Sango,wâ
 Sanskrit,अग्निः
-Santali (Ol Chiki),ᱥᱮᱺᱜᱮᱹᱞ
 Scots Gaelic,teine
-Sepedi,mollo
 Serbian,ватра
 Sesotho,mollo
-Seychellois Creole,dife
-Shan,ၽႆး
-Shona,moto
-Sicilian,focu
-Silesian,ôgyń
 Sindhi,باهه
 Sinhala,ගිනි
-Slovak,oheň
 Slovenian,ogenj
 Somali,dab
 Spanish,fuego
 Sundanese,seuneu
-Susu,tê
 Swahili,moto
-Swati,umlilo
-Swedish,brand
-Tahitian,auahi
 Tajik,оташ
-Tamazight,ⴰⴼⴰ
 Tamil,தீ
 Tatar,ут
 Telugu,అగ్ని
-Tetum,ahi
 Thai,ไฟ
-Tibetan,མེ
 Tigrinya,ሓዊ
-Tiv,usuh
-Tok Pisin,paia
-Tongan,afi
-Tshiluba,mudilu
 Tsonga,ndzilo
-Tswana,molelo
-Tulu,ತೂ
-Tumbuka,moto
 Turkish,ateş
 Turkmen,ot
-Tuvan,от
 Twi,ogya
-Udmurt,тыл
 Ukrainian,вогонь
 Urdu,آگ
 Uyghur,ئوت
 Uzbek,olov
-Venda,mulilo
 Vietnamese,ngọn lửa
-Waray,kalayo
 Welsh,tân
-Wolof,safara
 Xhosa,umlilo
-Yakut,уот
 Yiddish,פייַער
 Yoruba,ina
-Yucatec Maya,kʼaʼajaleʼ
-Zulu,umlilo

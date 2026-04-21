@@ -1,7 +1,4 @@
-"""Auto-translate a word using only Google Translate (deep-translator).
-
-Covers ~110–130 supported languages.
-"""
+"""Auto-translate a word using only Google Translate (deep-translator)."""
 
 from deep_translator import GoogleTranslator
 from deep_translator.constants import GOOGLE_LANGUAGES_TO_CODES

@@ -503,6 +503,7 @@ class RunesmakerApp:
             from pipeline.vectorize import vectorize_contours
             from pipeline.blend import blend_rune
             from pipeline.export import save_svg, save_json
+            from pipeline.weights import compute_weights
 
             rune_dir = os.path.join(OUTPUT_DIR, f"{name} Rune")
             os.makedirs(rune_dir, exist_ok=True)
@@ -515,7 +516,9 @@ class RunesmakerApp:
                 return
 
             vectors = vectorize_contours(contours)
-            rune = blend_rune(vectors, method=blend)
+            # Compute per-language script weights (mean only; median is weight-agnostic)
+            weights = compute_weights(contours) if blend == "mean" else None
+            rune = blend_rune(vectors, method=blend, weights=weights)
 
             svg_path = os.path.join(rune_dir, f"{name}.svg")
             json_path = os.path.join(rune_dir, f"{name}.json")
