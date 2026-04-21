@@ -1,4 +1,5 @@
 fonttools
+uharfbuzz
 numpy
 Pillow
 cairosvg

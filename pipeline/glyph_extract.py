@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass, field
 from fontTools.ttLib import TTFont
 from fontTools.pens.recordingPen import RecordingPen
+import uharfbuzz as hb 
 
 FONTS_DIR = os.path.join(os.path.dirname(__file__), "..", "fonts")
 
@@ -79,6 +80,95 @@ def extract_glyph(char: str, language: str, font_paths: list[str] | None = None)
     font.close()
     return contour
 
+def extract_word_glyph(text: str, language: str, font_paths: list[str]) -> GlyphContour | None:
+    """Extract a shaped contour for an entire word using HarfBuzz.
+
+    Unlike extract_glyph (first character only), this shapes the full text so
+    ligatures, kerning, and bidirectional scripts (Arabic, Hebrew, Urdu) are
+    rendered correctly as a single combined contour.
+
+    Args:
+        text: Full translation string to shape.
+        language: Language name (for labeling).
+        font_paths: Ordered list of font files to search.
+
+    Returns:
+        GlyphContour with all shaped glyphs merged, or None if no font covers
+        every character in the text.
+    """
+    font = None
+    font_path = None
+
+    for path in font_paths:
+        try:
+            f = TTFont(path)
+            cmap = f.getBestCmap()
+
+            if cmap and all(ord(c) in cmap for c in text if c.strip()):
+                font = f
+                font_path = path
+                break
+
+            f.close()
+        except Exception:
+            continue
+
+    if font is None:
+        return None
+
+    glyph_set = font.getGlyphSet()
+
+    with open(font_path, "rb") as f:
+        font_data = f.read()
+
+    face = hb.Face(font_data)
+    hb_font = hb.Font(face)
+
+    buf = hb.Buffer()
+    buf.add_str(text)
+    buf.guess_segment_properties()
+
+    hb.shape(hb_font, buf)
+
+    infos = buf.glyph_infos
+    positions = buf.glyph_positions
+
+    pen = RecordingPen()
+
+    x_cursor = 0
+    y_cursor = 0
+
+    for info, pos in zip(infos, positions):
+        glyph_name = font.getGlyphName(info.codepoint)
+
+        glyph_pen = RecordingPen()
+        glyph_set[glyph_name].draw(glyph_pen)
+
+        dx = x_cursor + pos.x_offset
+        dy = y_cursor + pos.y_offset
+
+        # Only translate ops that carry (x, y) point arguments
+        _POINT_OPS = {"moveTo", "lineTo", "curveTo", "qCurveTo"}
+        for op, args in glyph_pen.value:
+            if op in _POINT_OPS:
+                shifted = tuple((x + dx, y + dy) for (x, y) in args)
+            else:
+                shifted = args  # closePath / endPath / addComponent — pass through
+            pen.value.append((op, shifted))
+
+        x_cursor += pos.x_advance
+        y_cursor += pos.y_advance
+
+    contour = GlyphContour(
+        character=text,
+        language=language,
+        operations=pen.value,
+        width=x_cursor,
+        height=font["head"].unitsPerEm,
+    )
+
+    font.close()
+    return contour
 
 def extract_glyphs(translations: list[dict], font_paths: list[str] | None = None) -> list[GlyphContour]:
     """Extract glyph contours for all translations.
@@ -96,12 +186,12 @@ def extract_glyphs(translations: list[dict], font_paths: list[str] | None = None
     contours = []
     for t in translations:
         text = t["translation"]
-        # Use the first character of the translation as the representative glyph
-        char = text[0] if text else None
-        if char is None:
+        if not text or not text.strip():
             continue
 
-        contour = extract_glyph(char, t["language"], font_paths)
+        # Use HarfBuzz to shape the full word — handles ligatures, kerning,
+        # and bidirectional scripts correctly
+        contour = extract_word_glyph(text.strip(), t["language"], font_paths)
         if contour is not None:
             contours.append(contour)
 
