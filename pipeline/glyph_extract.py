@@ -34,14 +34,15 @@ def find_font_for_char(char: str, font_paths: list[str]) -> TTFont | None:
 
 
 def list_fonts() -> list[str]:
-    """List all .ttf and .otf files in the fonts directory."""
+    """List all .ttf and .otf files in the fonts directory (recursive)."""
     if not os.path.isdir(FONTS_DIR):
         return []
-    return [
-        os.path.join(FONTS_DIR, f)
-        for f in sorted(os.listdir(FONTS_DIR))
-        if f.lower().endswith((".ttf", ".otf"))
-    ]
+    results = []
+    for root, _, files in os.walk(FONTS_DIR):
+        for f in sorted(files):
+            if f.lower().endswith((".ttf", ".otf")):
+                results.append(os.path.join(root, f))
+    return results
 
 
 def extract_glyph(char: str, language: str, font_paths: list[str] | None = None) -> GlyphContour | None:

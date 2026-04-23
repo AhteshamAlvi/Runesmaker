@@ -5,8 +5,9 @@ import os
 
 from pipeline.loader import load_translations
 from pipeline.glyph_extract import extract_glyphs
-from pipeline.vectorize import vectorize_contours
-from pipeline.blend import blend_rune
+from pipeline.weights import compute_weights
+from pipeline.rune_map import build_rune_map
+from pipeline.project import project
 from pipeline.export import save_svg, save_json
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
@@ -17,10 +18,8 @@ def main():
     parser.add_argument("csv", help="Path to translations CSV (columns: language, translation)")
     parser.add_argument("--name", "-n", default=None,
                         help="Output file name (default: CSV filename without extension)")
-    parser.add_argument("--blend", choices=["mean", "median"], default="mean",
-                        help="Blending method (default: mean)")
-    parser.add_argument("--samples", type=int, default=64,
-                        help="Sample density per glyph contour (default: 64)")
+    parser.add_argument("--samples", type=int, default=128,
+                        help="Sample density per glyph curve (default: 128)")
     parser.add_argument("--output", "-o", default=None,
                         help="Output base directory (default: output/)")
     parser.add_argument("--format", choices=["svg", "json", "both"], default="both",
@@ -30,7 +29,6 @@ def main():
     out_base = args.output or OUTPUT_DIR
     name = args.name or os.path.splitext(os.path.basename(args.csv))[0]
 
-    # Output goes into output/<name> Rune/
     rune_dir = os.path.join(out_base, f"{name} Rune")
     os.makedirs(rune_dir, exist_ok=True)
 
@@ -46,17 +44,19 @@ def main():
         print("Error: No glyphs could be extracted. Add fonts to the fonts/ directory.")
         return
 
-    print(f"Vectorizing and blending ({args.blend})...")
-    vectors = vectorize_contours(contours, args.samples)
-    rune = blend_rune(vectors, method=args.blend)
+    print("Building 3D rune map...")
+    weights  = compute_weights(contours)
+    rune_map = build_rune_map(contours, weights, sample_density=args.samples)
+    proj_2d  = project(rune_map)
+    print(f"  {len(rune_map.curves)} language curves blended")
 
     if args.format in ("svg", "both"):
         svg_path = os.path.join(rune_dir, f"{name}.svg")
-        save_svg(rune, svg_path)
+        save_svg(proj_2d, svg_path)
         print(f"  Saved {svg_path}")
     if args.format in ("json", "both"):
         json_path = os.path.join(rune_dir, f"{name}.json")
-        save_json(rune, json_path)
+        save_json(rune_map, proj_2d, json_path)
         print(f"  Saved {json_path}")
 
     print("Done.")

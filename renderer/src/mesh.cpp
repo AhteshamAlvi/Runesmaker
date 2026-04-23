@@ -2,7 +2,9 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <cmath>
-#include <numeric>
+#include <stdexcept>
+
+// ─── JSON loading ────────────────────────────────────────────────────────────
 
 bool RuneMesh::load_from_json(const std::string& path) {
     std::ifstream file(path);
@@ -11,173 +13,186 @@ bool RuneMesh::load_from_json(const std::string& path) {
     nlohmann::json data;
     file >> data;
 
-    std::vector<std::array<float, 2>> contour;
-    for (auto& pt : data["points"]) {
-        contour.push_back({pt[0].get<float>(), pt[1].get<float>()});
+    int version = data.value("version", 1);
+
+    if (version >= 2) {
+        // ── New format: read the pre-built 3D blended centreline ──────────
+        if (!data.contains("blended"))
+            throw std::runtime_error("JSON v2 missing 'blended' field");
+
+        std::vector<std::array<float, 3>> centreline;
+        for (auto& pt : data["blended"]) {
+            centreline.push_back({
+                pt[0].get<float>(),
+                pt[1].get<float>(),
+                pt[2].get<float>()
+            });
+        }
+
+        if (centreline.size() < 2)
+            throw std::runtime_error("Centreline has fewer than 2 points");
+
+        tube_sweep(centreline, /*radius=*/0.04f, /*sides=*/10);
+
+    } else {
+        // ── Legacy format (v1): 2D contour extrusion (kept for compatibility)
+        if (!data.contains("points"))
+            throw std::runtime_error("JSON v1 missing 'points' field");
+
+        std::vector<std::array<float, 3>> centreline;
+        for (auto& pt : data["points"]) {
+            // Lift the 2D contour into 3D at z=0 so the legacy tube_sweep works
+            centreline.push_back({pt[0].get<float>(), pt[1].get<float>(), 0.0f});
+        }
+        tube_sweep(centreline, 0.04f, 10);
     }
 
-    extrude(contour, 0.3f);
     return true;
 }
 
-// --- Ear-clipping triangulation helpers ---
 
-static float cross2D(float ax, float ay, float bx, float by) {
-    return ax * by - ay * bx;
+// ─── Tube sweep ──────────────────────────────────────────────────────────────
+//
+// Builds a smooth tube around a 3D polyline using parallel-transport frames
+// to avoid sudden normal flips.  At each point we place a ring of `sides`
+// vertices in the plane perpendicular to the local tangent, then connect
+// successive rings with quads (two triangles each).  End caps are added.
+
+static std::array<float,3> norm3(std::array<float,3> v) {
+    float len = std::sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]) + 1e-8f;
+    return {v[0]/len, v[1]/len, v[2]/len};
 }
 
-// Signed area of polygon — positive = CCW, negative = CW
-static float polygonArea(const std::vector<std::array<float, 2>>& poly,
-                         const std::vector<int>& idx) {
-    float area = 0;
-    int n = static_cast<int>(idx.size());
-    for (int i = 0; i < n; i++) {
-        int j = (i + 1) % n;
-        area += poly[idx[i]][0] * poly[idx[j]][1];
-        area -= poly[idx[j]][0] * poly[idx[i]][1];
-    }
-    return area * 0.5f;
+static std::array<float,3> cross3(std::array<float,3> a, std::array<float,3> b) {
+    return {
+        a[1]*b[2] - a[2]*b[1],
+        a[2]*b[0] - a[0]*b[2],
+        a[0]*b[1] - a[1]*b[0]
+    };
 }
 
-// Check if point P is inside triangle ABC (using barycentric coordinates)
-static bool pointInTriangle(float px, float py,
-                            float ax, float ay,
-                            float bx, float by,
-                            float cx, float cy) {
-    float d1 = cross2D(bx - ax, by - ay, px - ax, py - ay);
-    float d2 = cross2D(cx - bx, cy - by, px - bx, py - by);
-    float d3 = cross2D(ax - cx, ay - cy, px - cx, py - cy);
-
-    bool hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-    bool hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-
-    return !(hasNeg && hasPos);
+static float dot3(std::array<float,3> a, std::array<float,3> b) {
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
 }
 
-// Ear-clipping triangulation: returns list of triangle index triples
-static std::vector<std::array<int, 3>> earClip(
-    const std::vector<std::array<float, 2>>& poly)
+void RuneMesh::tube_sweep(
+    const std::vector<std::array<float, 3>>& cl,
+    float radius, int sides)
 {
-    std::vector<std::array<int, 3>> triangles;
-    int n = static_cast<int>(poly.size());
-    if (n < 3) return triangles;
+    size_t n = cl.size();
+    if (n < 2) return;
 
-    // Build index list
-    std::vector<int> idx(n);
-    std::iota(idx.begin(), idx.end(), 0);
-
-    // Ensure CCW winding
-    if (polygonArea(poly, idx) < 0) {
-        std::reverse(idx.begin(), idx.end());
+    // ── Compute per-point tangents ────────────────────────────────────────
+    std::vector<std::array<float,3>> T(n);
+    for (size_t i = 0; i + 1 < n; ++i) {
+        T[i] = norm3({cl[i+1][0]-cl[i][0],
+                      cl[i+1][1]-cl[i][1],
+                      cl[i+1][2]-cl[i][2]});
     }
+    T[n-1] = T[n-2];
 
-    int remaining = n;
-    int failCount = 0;
+    // ── Seed normal perpendicular to T[0] ────────────────────────────────
+    std::array<float,3> seed = {0.f, 1.f, 0.f};
+    if (std::abs(dot3(T[0], seed)) > 0.9f) seed = {1.f, 0.f, 0.f};
+    // Project seed onto plane perpendicular to T[0]
+    float d = dot3(seed, T[0]);
+    std::array<float,3> N = norm3({seed[0]-d*T[0][0],
+                                   seed[1]-d*T[0][1],
+                                   seed[2]-d*T[0][2]});
 
-    while (remaining > 2 && failCount < remaining) {
-        for (int i = 0; i < remaining; i++) {
-            int prev = (i + remaining - 1) % remaining;
-            int next = (i + 1) % remaining;
+    // ── Build rings with parallel-transport ──────────────────────────────
+    std::vector<std::vector<uint32_t>> rings(n);
 
-            float ax = poly[idx[prev]][0], ay = poly[idx[prev]][1];
-            float bx = poly[idx[i]][0],    by = poly[idx[i]][1];
-            float cx = poly[idx[next]][0], cy = poly[idx[next]][1];
-
-            // Check if this is a convex (ear) vertex
-            float cross = cross2D(bx - ax, by - ay, cx - bx, cy - by);
-            if (cross <= 1e-8f) {
-                // Reflex or degenerate — not an ear
-                failCount++;
-                continue;
-            }
-
-            // Check no other vertex is inside this triangle
-            bool earOk = true;
-            for (int j = 0; j < remaining; j++) {
-                if (j == prev || j == i || j == next) continue;
-                if (pointInTriangle(poly[idx[j]][0], poly[idx[j]][1],
-                                    ax, ay, bx, by, cx, cy)) {
-                    earOk = false;
-                    break;
-                }
-            }
-
-            if (earOk) {
-                triangles.push_back({idx[prev], idx[i], idx[next]});
-                idx.erase(idx.begin() + i);
-                remaining--;
-                failCount = 0;
-                break;
-            } else {
-                failCount++;
-            }
-        }
-    }
-
-    return triangles;
-}
-
-// --- Cap face generation ---
-
-void RuneMesh::triangulateCap(const std::vector<std::array<float, 2>>& contour,
-                              float z, const std::array<float, 3>& normal, bool flip) {
-    auto triangles = earClip(contour);
-
-    uint32_t base = static_cast<uint32_t>(m_vertices.size());
-
-    // Add all contour vertices at the given Z depth
-    for (auto& pt : contour) {
-        m_vertices.push_back({{pt[0], pt[1], z}, normal});
-    }
-
-    // Add triangle indices
-    for (auto& tri : triangles) {
-        if (flip) {
-            m_indices.push_back(base + tri[0]);
-            m_indices.push_back(base + tri[2]);
-            m_indices.push_back(base + tri[1]);
-        } else {
-            m_indices.push_back(base + tri[0]);
-            m_indices.push_back(base + tri[1]);
-            m_indices.push_back(base + tri[2]);
-        }
-    }
-}
-
-// --- Extrusion ---
-
-void RuneMesh::extrude(const std::vector<std::array<float, 2>>& contour, float depth) {
-    float half = depth / 2.0f;
-    size_t n = contour.size();
-
-    // Front cap (facing +Z)
-    triangulateCap(contour, half, {0, 0, 1}, false);
-
-    // Back cap (facing -Z)
-    triangulateCap(contour, -half, {0, 0, -1}, true);
-
-    // Side walls
     for (size_t i = 0; i < n; ++i) {
-        size_t next = (i + 1) % n;
-
-        float x0 = contour[i][0], y0 = contour[i][1];
-        float x1 = contour[next][0], y1 = contour[next][1];
-
-        // Compute side normal
-        float dx = x1 - x0, dy = y1 - y0;
-        float len = std::sqrt(dx * dx + dy * dy);
-        float nx = -dy / (len + 1e-8f), ny = dx / (len + 1e-8f);
+        // B = T × N (binormal)
+        std::array<float,3> B = norm3(cross3(T[i], N));
+        // Re-orthogonalise N = B × T
+        N = norm3(cross3(B, T[i]));
 
         uint32_t base = static_cast<uint32_t>(m_vertices.size());
+        for (int j = 0; j < sides; ++j) {
+            float angle = 2.f * static_cast<float>(M_PI) * j / sides;
+            float ca = std::cos(angle), sa = std::sin(angle);
 
-        m_vertices.push_back({{x0, y0, -half}, {nx, ny, 0}});
-        m_vertices.push_back({{x1, y1, -half}, {nx, ny, 0}});
-        m_vertices.push_back({{x1, y1,  half}, {nx, ny, 0}});
-        m_vertices.push_back({{x0, y0,  half}, {nx, ny, 0}});
+            std::array<float,3> outward = {ca*N[0]+sa*B[0],
+                                           ca*N[1]+sa*B[1],
+                                           ca*N[2]+sa*B[2]};
+            m_vertices.push_back({
+                {cl[i][0] + radius*outward[0],
+                 cl[i][1] + radius*outward[1],
+                 cl[i][2] + radius*outward[2]},
+                outward   // outward IS the surface normal for a tube
+            });
+            rings[i].push_back(base + static_cast<uint32_t>(j));
+        }
 
-        m_indices.insert(m_indices.end(), {
-            base, base + 1, base + 2,
-            base, base + 2, base + 3
-        });
+        // ── Parallel-transport N to next frame (Rodrigues rotation) ──────
+        if (i + 1 < n) {
+            std::array<float,3> axis = cross3(T[i], T[i+1]);
+            float sin_a = std::sqrt(dot3(axis, axis));
+            if (sin_a > 1e-8f) {
+                axis = norm3(axis);
+                float cos_a = dot3(T[i], T[i+1]);
+                // Rodrigues: N_new = cos·N + sin·(axis×N) + (1-cos)·(axis·N)·axis
+                std::array<float,3> axN = cross3(axis, N);
+                float d_an = dot3(axis, N);
+                N = {
+                    cos_a*N[0] + sin_a*axN[0] + (1.f-cos_a)*d_an*axis[0],
+                    cos_a*N[1] + sin_a*axN[1] + (1.f-cos_a)*d_an*axis[1],
+                    cos_a*N[2] + sin_a*axN[2] + (1.f-cos_a)*d_an*axis[2]
+                };
+                N = norm3(N);
+            }
+        }
+
+        // ── Connect this ring to the previous one ─────────────────────────
+        if (i > 0) {
+            for (int j = 0; j < sides; ++j) {
+                int jn = (j + 1) % sides;
+                m_indices.push_back(rings[i-1][j]);
+                m_indices.push_back(rings[i  ][j]);
+                m_indices.push_back(rings[i  ][jn]);
+
+                m_indices.push_back(rings[i-1][j]);
+                m_indices.push_back(rings[i  ][jn]);
+                m_indices.push_back(rings[i-1][jn]);
+            }
+        }
+    }
+
+    // ── End caps ─────────────────────────────────────────────────────────
+    // Compute reversed tangent for back cap normal
+    std::array<float,3> front_n = {-T[0][0],   -T[0][1],   -T[0][2]};
+    std::array<float,3> back_n  = { T[n-1][0],  T[n-1][1],  T[n-1][2]};
+
+    add_cap(rings[0],   cl[0],   front_n, /*flip=*/false);
+    add_cap(rings[n-1], cl[n-1], back_n,  /*flip=*/true);
+}
+
+
+// ─── Flat disc cap ───────────────────────────────────────────────────────────
+
+void RuneMesh::add_cap(
+    const std::vector<uint32_t>& ring,
+    const std::array<float, 3>& centre,
+    const std::array<float, 3>& normal,
+    bool flip)
+{
+    // Centre vertex
+    uint32_t c_idx = static_cast<uint32_t>(m_vertices.size());
+    m_vertices.push_back({centre, normal});
+
+    int sides = static_cast<int>(ring.size());
+    for (int j = 0; j < sides; ++j) {
+        int jn = (j + 1) % sides;
+        if (flip) {
+            m_indices.push_back(c_idx);
+            m_indices.push_back(ring[jn]);
+            m_indices.push_back(ring[j]);
+        } else {
+            m_indices.push_back(c_idx);
+            m_indices.push_back(ring[j]);
+            m_indices.push_back(ring[jn]);
+        }
     }
 }

@@ -60,8 +60,9 @@ class RunesmakerApp:
         self.translations = {}
         self.current_index = 0
         self.csv_path = None
-        self.generated_svg_path = None
-        self.generated_json_path = None
+        self.generated_map_path = None   # {name}_map.json — 3D rune map only
+        self.generated_svg_path = None   # {name}.svg       — 2D projection
+        self.generated_json_path = None  # {name}.json      — full JSON for renderer
 
 
         # --- Build UI directly into root (no Canvas scroll wrapper needed) ---
@@ -149,26 +150,39 @@ class RunesmakerApp:
         self.save_status_var = tk.StringVar(value="")
         ttk.Label(save_frame, textvariable=self.save_status_var, foreground="gray").pack(side="left", padx=10)
 
-        # --- Generate & Render ---
-        action_frame = ttk.LabelFrame(parent, text="Generate & Render", padding=8)
+        # --- Pipeline (3 stages) ---
+        action_frame = ttk.LabelFrame(parent, text="Pipeline", padding=8)
         action_frame.pack(fill="x", **pad)
 
-        blend_row = ttk.Frame(action_frame)
-        blend_row.pack(fill="x", pady=(0, 6))
-        ttk.Label(blend_row, text="Blend:").pack(side="left")
-        self.blend_var = tk.StringVar(value="mean")
-        ttk.Radiobutton(blend_row, text="mean", variable=self.blend_var, value="mean").pack(side="left", padx=(10, 5))
-        ttk.Radiobutton(blend_row, text="median", variable=self.blend_var, value="median").pack(side="left")
-
-        btn_row = ttk.Frame(action_frame)
-        btn_row.pack(fill="x")
-        self.gen_btn = ttk.Button(btn_row, text="Generate", command=self._generate)
+        # Stage 1 — Generate 3D map
+        stage1_row = ttk.Frame(action_frame)
+        stage1_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(stage1_row, text="1.", width=2).pack(side="left")
+        self.gen_btn = ttk.Button(stage1_row, text="Generate", command=self._generate)
         self.gen_btn.pack(side="left")
-        self.render_btn = ttk.Button(btn_row, text="Render", command=self._render, state="disabled")
-        self.render_btn.pack(side="left", padx=10)
+        self.view_map_btn = ttk.Button(stage1_row, text="View Map ▶",
+                                       command=self._view_map, state="disabled")
+        self.view_map_btn.pack(side="left", padx=(6, 0))
+        ttk.Label(stage1_row, text="— build 3D rune map", foreground="gray").pack(side="left", padx=(8, 0))
+
+        # Stage 2 — Project to 2D SVG
+        stage2_row = ttk.Frame(action_frame)
+        stage2_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(stage2_row, text="2.", width=2).pack(side="left")
+        self.project_btn = ttk.Button(stage2_row, text="Project", command=self._project, state="disabled")
+        self.project_btn.pack(side="left")
+        ttk.Label(stage2_row, text="— project to 2D glyph SVG", foreground="gray").pack(side="left", padx=(8, 0))
+
+        # Stage 3 — Render 3D Vulkan
+        stage3_row = ttk.Frame(action_frame)
+        stage3_row.pack(fill="x")
+        ttk.Label(stage3_row, text="3.", width=2).pack(side="left")
+        self.render_btn = ttk.Button(stage3_row, text="Render", command=self._render, state="disabled")
+        self.render_btn.pack(side="left")
+        ttk.Label(stage3_row, text="— render 3D rune in Vulkan", foreground="gray").pack(side="left", padx=(8, 0))
 
         self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(action_frame, textvariable=self.status_var, foreground="gray").pack(anchor="w", pady=(4, 0))
+        ttk.Label(action_frame, textvariable=self.status_var, foreground="gray").pack(anchor="w", pady=(8, 0))
 
     # --- Dropdown ---
 
@@ -229,19 +243,29 @@ class RunesmakerApp:
             self._update_dropdown()
             self.save_status_var.set(f"New rune: {name}")
 
-        rune_dir = os.path.join(OUTPUT_DIR, f"{name} Rune")
-        svg_path = os.path.join(rune_dir, f"{name}.svg")
+        rune_dir  = os.path.join(OUTPUT_DIR, f"{name} Rune")
+        map_path  = os.path.join(rune_dir, f"{name}_map.json")
+        svg_path  = os.path.join(rune_dir, f"{name}.svg")
         json_path = os.path.join(rune_dir, f"{name}.json")
 
-        if os.path.isfile(svg_path):
-            self.generated_svg_path = svg_path
-            self.generated_json_path = json_path
-            self.render_btn.config(state="normal")
+        # Restore pipeline state from whatever output files exist
+        self.generated_map_path  = map_path  if os.path.isfile(map_path)  else None
+        self.generated_svg_path  = svg_path  if os.path.isfile(svg_path)  else None
+        self.generated_json_path = json_path if os.path.isfile(json_path) else None
+
+        map_ready  = self.generated_map_path  is not None
+        json_ready = self.generated_json_path is not None
+
+        self.view_map_btn.config(state="normal"   if map_ready  else "disabled")
+        self.project_btn.config( state="normal"   if map_ready  else "disabled")
+        self.render_btn.config(  state="normal"   if json_ready else "disabled")
+
+        if json_ready:
             self.status_var.set(f"Loaded existing rune from {rune_dir}")
+        elif map_ready:
+            self.status_var.set(f"Map loaded — press Project to generate SVG")
         else:
-            self.generated_svg_path = None
-            self.generated_json_path = None
-            self.render_btn.config(state="disabled")
+            self.status_var.set("Ready")
 
     # --- Navigation ---
 
@@ -472,7 +496,7 @@ class RunesmakerApp:
         tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-    # --- Generate ---
+    # --- Stage 1: Generate 3D rune map ---
 
     def _generate(self):
         self._save_current()
@@ -490,20 +514,20 @@ class RunesmakerApp:
         self._write_csv(self.csv_path)
 
         self.gen_btn.config(state="disabled")
+        self.view_map_btn.config(state="disabled")
+        self.project_btn.config(state="disabled")
         self.render_btn.config(state="disabled")
-        self.status_var.set("Generating...")
+        self.status_var.set("Generating 3D rune map...")
 
-        blend = self.blend_var.get()
-        threading.Thread(target=self._run_generate, args=(self.csv_path, name, blend), daemon=True).start()
+        threading.Thread(target=self._run_generate, args=(self.csv_path, name), daemon=True).start()
 
-    def _run_generate(self, csv_path, name, blend):
+    def _run_generate(self, csv_path, name):
         try:
             from pipeline.loader import load_translations
             from pipeline.glyph_extract import extract_glyphs
-            from pipeline.vectorize import vectorize_contours
-            from pipeline.blend import blend_rune
-            from pipeline.export import save_svg, save_json
             from pipeline.weights import compute_weights
+            from pipeline.rune_map import build_rune_map
+            from pipeline.export import save_map
 
             rune_dir = os.path.join(OUTPUT_DIR, f"{name} Rune")
             os.makedirs(rune_dir, exist_ok=True)
@@ -515,38 +539,358 @@ class RunesmakerApp:
                 self.root.after(0, self._gen_error, "No glyphs extracted. Add fonts to fonts/ directory.")
                 return
 
-            vectors = vectorize_contours(contours)
-            # Compute per-language script weights (mean only; median is weight-agnostic)
-            weights = compute_weights(contours) if blend == "mean" else None
-            rune = blend_rune(vectors, method=blend, weights=weights)
+            weights  = compute_weights(contours)
+            rune_map = build_rune_map(contours, weights)
 
-            svg_path = os.path.join(rune_dir, f"{name}.svg")
-            json_path = os.path.join(rune_dir, f"{name}.json")
-            save_svg(rune, svg_path)
-            save_json(rune, json_path)
+            map_path = os.path.join(rune_dir, f"{name}_map.json")
+            save_map(rune_map, map_path)
 
-            self.generated_svg_path = svg_path
-            self.generated_json_path = json_path
-            self.root.after(0, self._gen_done, svg_path)
+            self.generated_map_path = map_path
+            self.root.after(0, self._gen_done, map_path,
+                            len(contours), len(rune_map.curves))
 
         except Exception as e:
             self.root.after(0, self._gen_error, str(e))
 
-    def _gen_done(self, svg_path):
-        self.status_var.set(f"Done! Saved to {svg_path}")
+    def _gen_done(self, map_path, n_langs, n_streamlines):
+        self.status_var.set(
+            f"3D map built — {n_langs} languages → {n_streamlines} streamlines. "
+            "Press Project to generate SVG."
+        )
         self.gen_btn.config(state="normal")
-        self.render_btn.config(state="normal")
-        self._open_preview(svg_path)
+        self.view_map_btn.config(state="normal")
+        self.project_btn.config(state="normal")
 
     def _gen_error(self, msg):
         self.status_var.set(f"Error: {msg}")
         self.gen_btn.config(state="normal")
 
-    # --- Render ---
+    # --- Stage 1b: View 3D map (interactive, rotatable, live language filter) ---
+
+    def _view_map(self):
+        if not self.generated_map_path or not os.path.isfile(self.generated_map_path):
+            messagebox.showerror("No map", "Generate a 3D map first.")
+            return
+
+        import json
+        import math
+        import colorsys
+        import numpy as np
+        from pipeline.rune_map import rebuild_from_encodings
+
+        with open(self.generated_map_path) as f:
+            data = json.load(f)
+
+        name = self.name_var.get().strip() or "Rune"
+
+        # ── Parse data ────────────────────────────────────────────────────
+        # Streamlines (the 8 seed curves)
+        raw_curves  = [np.array(s, dtype=np.float64) for s in data["streamlines"]]
+        raw_blended = np.array(data["blended"], dtype=np.float64)
+
+        # Per-language metadata (for table + interactive rebuild)
+        lang_entries = data.get("languages", [])
+        encodings    = data.get("encodings", [])
+        n_langs      = len(lang_entries)
+
+        # Steps = length of each streamline
+        steps = len(raw_blended)
+
+        # Language display data
+        langs = [e["language"] for e in lang_entries]
+        wts   = [float(e["weight"]) for e in lang_entries]
+
+        # Color per language: high weight → red, low weight → blue
+        wts_arr      = np.array(wts)
+        w_lo, w_hi   = wts_arr.min(), wts_arr.max()
+        w_span       = (w_hi - w_lo) or 1.0
+        def lang_color(w):
+            t   = (w - w_lo) / w_span
+            hue = (1.0 - t) * 0.65
+            r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 0.92)
+            return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+        lang_colors  = [lang_color(w) for w in wts]
+        sorted_langs = sorted(range(n_langs), key=lambda i: wts[i], reverse=True)
+
+        # Color per streamline (fixed hue wheel — streamlines ≠ languages)
+        n_curves = len(raw_curves)
+        def curve_color(i):
+            r, g, b = colorsys.hsv_to_rgb(i / max(n_curves, 1), 0.6, 0.85)
+            return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+        curve_colors = [curve_color(i) for i in range(n_curves)]
+
+        # ── Mutable view state (updated by language toggles) ──────────────
+        view = {
+            "curves":      raw_curves,
+            "blended":     raw_blended,
+            "rebuilding":  False,
+        }
+
+        # ── Window ────────────────────────────────────────────────────────
+        win = tk.Toplevel(self.root)
+        win.title(f"3D Map — {name}")
+        win.geometry("700x900")
+        win.resizable(True, True)
+
+        hdr = ttk.Frame(win)
+        hdr.pack(fill="x", padx=12, pady=(10, 2))
+        ttk.Label(hdr,
+                  text=f"{n_langs} languages  ·  {n_curves} streamlines  ·  {steps} steps",
+                  font=("", 12, "bold")).pack(side="left")
+        ttk.Label(hdr, text="drag to rotate  ·  scroll to zoom",
+                  foreground="gray").pack(side="right")
+
+        rebuild_status = tk.StringVar(value="")
+        ttk.Label(win, textvariable=rebuild_status,
+                  foreground="gray").pack(anchor="e", padx=12)
+
+        # ── 3D Canvas ─────────────────────────────────────────────────────
+        CS  = 500
+        PAD = 36
+
+        canvas = tk.Canvas(win, width=CS, height=CS,
+                           bg="#111111", highlightthickness=0)
+        canvas.pack(padx=12, pady=(2, 6))
+
+        cam = {"az": 0.4, "el": 0.25, "zoom": 1.0, "mx": 0, "my": 0}
+
+        def make_R(az, el):
+            ca, sa = math.cos(az), math.sin(az)
+            ce, se = math.cos(el), math.sin(el)
+            Ry = np.array([[ ca, 0, sa], [0, 1, 0], [-sa, 0, ca]])
+            Rx = np.array([[1, 0, 0], [0, ce, -se], [0, se, ce]])
+            return Rx @ Ry
+
+        def to_canvas(pts):
+            """Project (N,3) array → flat [x,y,...] canvas list."""
+            R    = make_R(cam["az"], cam["el"])
+            rot  = pts @ R.T
+            zoom = cam["zoom"]
+            px   = CS/2 + rot[:, 0] * zoom * (CS/2 - PAD)
+            py   = CS/2 - rot[:, 1] * zoom * (CS/2 - PAD)
+            out  = []
+            for x, y in zip(px.tolist(), py.tolist()):
+                out.append(x); out.append(y)
+            return out, rot[:, 2]
+
+        def draw_axes():
+            R    = make_R(cam["az"], cam["el"])
+            tips = np.array([[0.18,0,0],[0,0.18,0],[0,0,0.18]])
+            rot  = tips @ R.T
+            zoom = cam["zoom"]
+            ox, oy = CS/2, CS/2
+            for i, (col, lbl) in enumerate([("#ff5555","X"),("#55ff55","Y"),("#5555ff","Z")]):
+                ex = CS/2 + rot[i,0] * zoom * (CS/2 - PAD)
+                ey = CS/2 - rot[i,1] * zoom * (CS/2 - PAD)
+                canvas.create_line(ox, oy, ex, ey, fill=col, width=2)
+                canvas.create_text(ex, ey - 8, text=lbl, fill=col, font=("", 8))
+
+        def redraw():
+            canvas.delete("all")
+            curves  = view["curves"]
+            blended = view["blended"]
+
+            # Depth-sort streamlines back → front
+            R = make_R(cam["az"], cam["el"])
+            depths = [(c @ R.T)[:, 2].mean() for c in curves]
+            order  = np.argsort(depths)
+
+            for i in order:
+                coords, _ = to_canvas(curves[i])
+                if len(coords) >= 4:
+                    canvas.create_line(*coords, fill=curve_colors[i],
+                                       width=1, smooth=True)
+
+            # Blended (9th streamline from origin) — thick white
+            coords, _ = to_canvas(blended)
+            if len(coords) >= 4:
+                canvas.create_line(*coords, fill="white", width=3, smooth=True)
+
+            draw_axes()
+            canvas.create_text(PAD, 16, text="─── origin streamline",
+                               fill="white", anchor="w", font=("", 9))
+
+        # ── Mouse bindings ────────────────────────────────────────────────
+        def on_press(e):
+            cam["mx"], cam["my"] = e.x, e.y
+
+        def on_drag(e):
+            dx, dy = e.x - cam["mx"], e.y - cam["my"]
+            cam["az"] += dx * 0.008
+            cam["el"]  = max(-math.pi/2 + 0.01,
+                             min(math.pi/2 - 0.01, cam["el"] + dy * 0.008))
+            cam["mx"], cam["my"] = e.x, e.y
+            redraw()
+
+        def on_scroll(e):
+            factor = 1.1 if (getattr(e, "delta", 0) > 0
+                             or getattr(e, "num", 0) == 4) else 1/1.1
+            cam["zoom"] = max(0.2, min(5.0, cam["zoom"] * factor))
+            redraw()
+
+        canvas.bind("<ButtonPress-1>", on_press)
+        canvas.bind("<B1-Motion>",     on_drag)
+        canvas.bind("<MouseWheel>",    on_scroll)
+        canvas.bind("<Button-4>",      on_scroll)
+        canvas.bind("<Button-5>",      on_scroll)
+
+        # ── Language selection table ──────────────────────────────────────
+        tbl_frame = ttk.LabelFrame(
+            win, text="Languages — click to show/hide  (rebuilds field with selected languages)",
+            padding=6)
+        tbl_frame.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+
+        btn_row = ttk.Frame(tbl_frame)
+        btn_row.pack(fill="x", pady=(0, 4))
+
+        selected_langs = set(range(n_langs))   # indices into lang_entries / encodings
+
+        def _rebuild(active_indices):
+            """Run rebuild_from_encodings in a background thread."""
+            if view["rebuilding"]:
+                return
+            if not encodings:
+                redraw()
+                return
+            view["rebuilding"] = True
+            rebuild_status.set("Rebuilding field…")
+
+            active_enc = [encodings[i] for i in sorted(active_indices)]
+
+            def worker():
+                try:
+                    new_curves, new_blended = rebuild_from_encodings(
+                        active_enc, steps=steps)
+                    win.after(0, _apply, new_curves, new_blended)
+                except Exception as exc:
+                    win.after(0, lambda: rebuild_status.set(f"Error: {exc}"))
+                    win.after(0, lambda: setattr(view, "rebuilding", False))
+
+            def _apply(new_curves, new_blended):
+                view["curves"]     = new_curves
+                view["blended"]    = new_blended
+                view["rebuilding"] = False
+                rebuild_status.set(
+                    f"Showing {len(active_enc)} / {n_langs} languages")
+                redraw()
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def select_all():
+            selected_langs.update(range(n_langs))
+            for i in range(n_langs):
+                tree.set(str(i), "check", "✓")
+                tree.tag_configure(f"lc{i}", foreground=lang_colors[i])
+            _rebuild(selected_langs)
+
+        def select_none():
+            # Keep at least the top-weighted language visible
+            selected_langs.clear()
+            for i in range(n_langs):
+                tree.set(str(i), "check", "✗")
+                tree.tag_configure(f"lc{i}", foreground="#555555")
+            _rebuild(selected_langs)
+
+        ttk.Button(btn_row, text="Select All",  command=select_all).pack(side="left")
+        ttk.Button(btn_row, text="Select None", command=select_none).pack(side="left", padx=(6,0))
+
+        tree = ttk.Treeview(tbl_frame,
+                            columns=("check", "swatch", "language", "effect"),
+                            show="headings", selectmode="none", height=8)
+        tree.heading("check",    text="")
+        tree.heading("swatch",   text="")
+        tree.heading("language", text="Language")
+        tree.heading("effect",   text="How much this affects the final Rune")
+        tree.column("check",    width=22,  stretch=False, anchor="center")
+        tree.column("swatch",   width=18,  stretch=False, anchor="center")
+        tree.column("language", width=190, stretch=True)
+        tree.column("effect",   width=210, stretch=False, anchor="e")
+
+        # Rows sorted heaviest → lightest; iid = original language index
+        for rank, i in enumerate(sorted_langs):
+            tree.insert("", "end", iid=str(i),
+                        values=("✓", "■", langs[i], f"{wts[i]*100:.3f}%"),
+                        tags=(f"lc{i}",))
+            tree.tag_configure(f"lc{i}", foreground=lang_colors[i])
+
+        def on_row_click(event):
+            item = tree.identify_row(event.y)
+            if not item:
+                return
+            i = int(item)
+            if i in selected_langs:
+                selected_langs.discard(i)
+                tree.set(item, "check", "✗")
+                tree.tag_configure(f"lc{i}", foreground="#555555")
+            else:
+                selected_langs.add(i)
+                tree.set(item, "check", "✓")
+                tree.tag_configure(f"lc{i}", foreground=lang_colors[i])
+            _rebuild(selected_langs)
+
+        tree.bind("<ButtonRelease-1>", on_row_click)
+
+        sb = ttk.Scrollbar(tbl_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=sb.set)
+        tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+
+        redraw()
+
+    # --- Stage 2: Project 3D map → 2D SVG ---
+
+    def _project(self):
+        if not self.generated_map_path or not os.path.isfile(self.generated_map_path):
+            messagebox.showerror("No map", "Generate a 3D map first.")
+            return
+
+        name = self.name_var.get().strip()
+        if not name:
+            messagebox.showwarning("Missing name", "Enter a rune name first.")
+            return
+
+        self.project_btn.config(state="disabled")
+        self.render_btn.config(state="disabled")
+        self.status_var.set("Projecting to 2D SVG...")
+
+        rune_dir = os.path.join(OUTPUT_DIR, f"{name} Rune")
+        threading.Thread(target=self._run_project, args=(self.generated_map_path, rune_dir, name), daemon=True).start()
+
+    def _run_project(self, map_path, rune_dir, name):
+        try:
+            from pipeline.project import project
+            from pipeline.export import load_map, save_svg, save_json
+
+            rune_map = load_map(map_path)
+            proj_2d  = project(rune_map)
+
+            svg_path  = os.path.join(rune_dir, f"{name}.svg")
+            json_path = os.path.join(rune_dir, f"{name}.json")
+            save_svg(proj_2d, svg_path)
+            save_json(rune_map, proj_2d, json_path)
+
+            self.generated_svg_path  = svg_path
+            self.generated_json_path = json_path
+            self.root.after(0, self._project_done, svg_path)
+
+        except Exception as e:
+            self.root.after(0, self._project_error, str(e))
+
+    def _project_done(self, svg_path):
+        self.status_var.set(f"SVG saved — {svg_path}")
+        self.project_btn.config(state="normal")
+        self.render_btn.config(state="normal")
+        self._open_preview(svg_path)
+
+    def _project_error(self, msg):
+        self.status_var.set(f"Project error: {msg}")
+        self.project_btn.config(state="normal")
+
+    # --- Stage 3: Render 3D Vulkan ---
 
     def _render(self):
         if not self.generated_json_path or not os.path.isfile(self.generated_json_path):
-            messagebox.showerror("Missing JSON", "Generate a rune first.")
+            messagebox.showerror("Missing JSON", "Project to 2D first.")
             return
 
         if not os.path.isfile(RENDERER_BIN):
@@ -559,41 +903,44 @@ class RunesmakerApp:
             return
 
         self.render_btn.config(state="disabled")
-        self.status_var.set("Rendering...")
-        threading.Thread(target=self._run_render, daemon=True).start()
+        self.status_var.set("Rendering 3D rune...")
+        threading.Thread(target=self._run_renderer, args=(self.generated_json_path, "render_btn"), daemon=True).start()
 
-    def _run_render(self):
+    def _run_renderer(self, json_path, btn_attr):
+        """Launch the Vulkan renderer on any JSON path (map or full)."""
         try:
-            # MoltenVK on macOS: tell the Vulkan loader where to find the ICD driver
-            # and ensure GLFW can dlopen libvulkan at runtime
             env = os.environ.copy()
             icd_path = "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             if os.path.isfile(icd_path):
                 env["VK_ICD_FILENAMES"] = icd_path
                 env["VK_DRIVER_FILES"] = icd_path
-            # GLFW uses dlopen to find libvulkan — help it find the Homebrew copy
             lib_path = "/opt/homebrew/lib"
             if os.path.isdir(lib_path):
                 existing = env.get("DYLD_LIBRARY_PATH", "")
                 env["DYLD_LIBRARY_PATH"] = f"{lib_path}:{existing}" if existing else lib_path
+
             result = subprocess.run(
-                [RENDERER_BIN, self.generated_json_path],
+                [RENDERER_BIN, json_path],
                 capture_output=True, text=True, env=env
             )
             if result.returncode != 0 and result.stderr and result.stderr.strip():
-                self.root.after(0, self._render_error, result.stderr.strip())
+                self.root.after(0, self._renderer_error, result.stderr.strip(), btn_attr)
             else:
-                self.root.after(0, self._render_done)
+                self.root.after(0, self._renderer_done, btn_attr)
         except Exception as e:
-            self.root.after(0, self._render_error, str(e))
+            self.root.after(0, self._renderer_error, str(e), btn_attr)
 
-    def _render_done(self):
-        self.status_var.set("Render complete!")
-        self.render_btn.config(state="normal")
+    def _renderer_done(self, btn_attr):
+        self.status_var.set("Renderer closed.")
+        btn = getattr(self, btn_attr, None)
+        if btn:
+            btn.config(state="normal")
 
-    def _render_error(self, msg):
+    def _renderer_error(self, msg, btn_attr):
         self.status_var.set(f"Render error: {msg}")
-        self.render_btn.config(state="normal")
+        btn = getattr(self, btn_attr, None)
+        if btn:
+            btn.config(state="normal")
 
     # --- SVG Preview Popup ---
 

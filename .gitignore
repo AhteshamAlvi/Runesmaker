@@ -7,9 +7,13 @@ __pycache__/
 # Output (each rune gets a subfolder: output/<Name> Rune/)
 output/*/
 
-# Fonts (large binaries)
-fonts/*.ttf
-fonts/*.otf
+# Fonts (large binaries — download separately, do not commit)
+fonts/**/*.ttf
+fonts/**/*.otf
+fonts/**/*.woff
+fonts/**/*.woff2
+fonts/*.zip
+fonts/*/
 
 # C++ build
 renderer/build/
@@ -23,3 +27,6 @@ renderer/third_party/json/
 .idea/
 *.swp
 .DS_Store
+
+# CSV files
+translations/*.csv
