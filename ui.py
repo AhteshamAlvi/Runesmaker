@@ -181,6 +181,12 @@ class RunesmakerApp:
         ttk.Label(stage2_row, text="2.", width=2).pack(side="left")
         self.project_btn = ttk.Button(stage2_row, text="Project", command=self._project, state="disabled")
         self.project_btn.pack(side="left")
+        self.project_method_var = tk.StringVar()
+        self.project_method_dd  = ttk.Combobox(
+            stage2_row, textvariable=self.project_method_var,
+            state="readonly", width=16,
+        )
+        self.project_method_dd.pack(side="left", padx=(6, 0))
         ttk.Label(stage2_row, text="— project to 2D glyph SVG", foreground="gray").pack(side="left", padx=(8, 0))
 
         # Stage 3 — Render 3D Vulkan
@@ -189,10 +195,65 @@ class RunesmakerApp:
         ttk.Label(stage3_row, text="3.", width=2).pack(side="left")
         self.render_btn = ttk.Button(stage3_row, text="Render", command=self._render, state="disabled")
         self.render_btn.pack(side="left")
+        self.render_method_var = tk.StringVar()
+        self.render_method_dd  = ttk.Combobox(
+            stage3_row, textvariable=self.render_method_var,
+            state="readonly", width=16,
+        )
+        self.render_method_dd.pack(side="left", padx=(6, 0))
         ttk.Label(stage3_row, text="— render 3D rune in Vulkan", foreground="gray").pack(side="left", padx=(8, 0))
+
+        self._populate_method_dropdowns()
 
         self.status_var = tk.StringVar(value="Ready")
         ttk.Label(action_frame, textvariable=self.status_var, foreground="gray").pack(anchor="w", pady=(8, 0))
+
+    # --- Method dropdowns (auto-populate from registries) ---
+
+    def _populate_method_dropdowns(self):
+        """Fill Project/Render method dropdowns from each dispatcher's registry.
+
+        Imported lazily so a typo in a method file doesn't crash UI start-up
+        before the user can diagnose it. Each dropdown lists whatever keys
+        are registered; adding a method + wiring it into its dispatcher's
+        registry makes it appear on next UI launch without any UI code
+        changes.
+        """
+        try:
+            from pipeline.output.project import (
+                available_methods as project_methods,
+                CURRENT_METHOD     as project_default,
+            )
+            p_methods = project_methods()
+        except Exception:
+            p_methods, project_default = [], ""
+
+        try:
+            from pipeline.output.render import (
+                available_methods as render_methods,
+                CURRENT_METHOD     as render_default,
+            )
+            r_methods = render_methods()
+        except Exception:
+            r_methods, render_default = [], ""
+
+        self._configure_method_dropdown(
+            self.project_method_dd, self.project_method_var,
+            p_methods, project_default,
+        )
+        self._configure_method_dropdown(
+            self.render_method_dd, self.render_method_var,
+            r_methods, render_default,
+        )
+
+    @staticmethod
+    def _configure_method_dropdown(combo, var, methods, default):
+        if methods:
+            combo.configure(values=methods, state="readonly")
+            var.set(default if default in methods else methods[0])
+        else:
+            combo.configure(values=["(none)"], state="disabled")
+            var.set("(none)")
 
     # --- Dropdown ---
 
@@ -972,17 +1033,20 @@ class RunesmakerApp:
         self.status_var.set("Projecting to 2D SVG...")
 
         rune_dir = os.path.join(OUTPUT_DIR, f"{name} Rune")
+        method   = self.project_method_var.get()
+        if method == "(none)":
+            method = None
         threading.Thread(target=self._run_project,
-                         args=(self.generated_json_path, rune_dir, name),
+                         args=(self.generated_json_path, rune_dir, name, method),
                          daemon=True).start()
 
-    def _run_project(self, json_path, rune_dir, name):
+    def _run_project(self, json_path, rune_dir, name, method=None):
         try:
             from pipeline.output.project import project
             from pipeline.output.export import load_map, save_svg, save_json
 
             rune_map = load_map(json_path)
-            proj_2d  = project(rune_map)
+            proj_2d  = project(rune_map, method=method)
 
             svg_path = os.path.join(rune_dir, f"{name}.svg")
             save_svg(proj_2d, svg_path)

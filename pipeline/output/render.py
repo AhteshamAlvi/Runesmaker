@@ -28,9 +28,11 @@ Methods are free to reuse existing helpers:
 
 from __future__ import annotations
 from typing import Callable
+import pkgutil
+import importlib
 
 from pipeline.rune_map import RuneMap
-
+from pipeline.output import render_methods as _methods_pkg
 
 # ── Active method ─────────────────────────────────────────────────────────────
 #
@@ -38,20 +40,32 @@ from pipeline.rune_map import RuneMap
 # `save_render()` to use when no explicit `method=` argument is passed.
 # Empty string means "no default" — callers must pass `method=` or the
 # dispatcher raises.
-CURRENT_METHOD: str = ""
+CURRENT_METHOD: str = "multi_stroke"
 
 
-# ── Registry ──────────────────────────────────────────────────────────────────
+# ── Registry (auto-discovered) ───────────────────────────────
 #
-# Populated below by importing each render-method module and mapping a short
-# key to its `render` function. Kept empty until the first concrete method
-# is added.
+# Every `.py` file inside `pipeline/output/render_methods/` that
+# exposes a `render(rune_map) -> str` function is registered
+# automatically under its filename (stem).
+#
+# Files whose name starts with '_' (e.g. `_util.py`) are skipped,
+# so private helpers don't leak into the registry.
+#
+# To add a new method: drop a file in `render_methods/`, define
+# `render()` — done. No edits here, no edits in the UI.
 _REGISTRY: dict[str, Callable[[RuneMap], str]] = {}
 
-# Example of how a method gets registered (uncomment when the file exists):
-#
-# from pipeline.output.render_methods import layered_backbone
-# _REGISTRY["layered_backbone"] = layered_backbone.render
+for _info in pkgutil.iter_modules(_methods_pkg.__path__):
+    if _info.name.startswith("_"):
+        continue
+
+    _mod = importlib.import_module(
+        f"{_methods_pkg.__name__}.{_info.name}"
+    )
+
+    if callable(getattr(_mod, "render", None)):
+        _REGISTRY[_info.name] = _mod.render
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

@@ -53,29 +53,40 @@ Public API
 
 from __future__ import annotations
 from typing import Callable
+import importlib
+import pkgutil
 import numpy as np
+
 from pipeline.rune_map import RuneMap
+from pipeline.output import project_methods as _methods_pkg
 
 
 # ── Active method ────────────────────────────────────────────
 
-CURRENT_METHOD: str = "orthographic"
+CURRENT_METHOD: str = "optimal_angle"
 
 
-# ── Registry ─────────────────────────────────────────────────
-
+# ── Registry (auto-discovered) ───────────────────────────────
+#
+# Every `.py` file inside `pipeline/output/project_methods/` that
+# exposes a `project(rune_map) -> np.ndarray` function is registered
+# automatically under its filename (stem).
+#
+# Files whose name starts with '_' (e.g. `_util.py`) are skipped,
+# so private helpers don't leak into the registry.
+#
+# To add a new method: drop a file in `project_methods/`, define
+# `project()` — done. No edits here, no edits in the UI.
 _REGISTRY: dict[str, Callable[[RuneMap], np.ndarray]] = {}
 
-
-# ── Register methods ─────────────────────────────────────────
-
-from pipeline.output.project_methods import orthographic
-from pipeline.output.project_methods import pca_plane
-from pipeline.output.project_methods import optimal_angle
-
-_REGISTRY["orthographic"] = orthographic.project
-_REGISTRY["pca_plane"]    = pca_plane.project
-_REGISTRY["optimal_angle"] = optimal_angle.project
+for _info in pkgutil.iter_modules(_methods_pkg.__path__):
+    if _info.name.startswith("_"):
+        continue
+    _mod = importlib.import_module(
+        f"{_methods_pkg.__name__}.{_info.name}"
+    )
+    if callable(getattr(_mod, "project", None)):
+        _REGISTRY[_info.name] = _mod.project
 
 
 # ── Public API ───────────────────────────────────────────────
