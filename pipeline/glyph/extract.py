@@ -6,9 +6,7 @@ from fontTools.ttLib import TTFont
 from fontTools.pens.recordingPen import RecordingPen
 import uharfbuzz as hb 
 
-FONTS_DIR = os.path.join(os.path.dirname(__file__), "..", "fonts")
-
-
+FONTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "fonts"))
 @dataclass
 class GlyphContour:
     """A single glyph's outline as a list of drawing operations."""
