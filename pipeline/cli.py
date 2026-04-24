@@ -5,7 +5,6 @@ import os
 
 from pipeline.loader import load_translations
 from pipeline.glyph_extract import extract_glyphs
-from pipeline.weights import compute_weights
 from pipeline.rune_map import build_rune_map
 from pipeline.project import project
 from pipeline.export import save_svg, save_json
@@ -45,10 +44,9 @@ def main():
         return
 
     print("Building 3D rune map...")
-    weights  = compute_weights(contours)
-    rune_map = build_rune_map(contours, weights, sample_density=args.samples)
+    rune_map = build_rune_map(contours, sample_density=args.samples)
     proj_2d  = project(rune_map)
-    print(f"  {len(rune_map.curves)} language curves blended")
+    print(f"  {len(rune_map.curves)} language streamlines")
 
     if args.format in ("svg", "both"):
         svg_path = os.path.join(rune_dir, f"{name}.svg")

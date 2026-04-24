@@ -1,12 +1,33 @@
-"""Export a rune to SVG (2D) and JSON (3D) for the C++ renderer."""
+"""Export a rune to SVG (2D) and JSON (3D) for the C++ renderer.
+
+JSON version 4 format
+─────────────────────
+{
+  "version":     4,
+  "blended":     [[x,y,z], ...],           ← centroid streamline (C++ tube sweep)
+  "streamlines": [[[x,y,z], ...], ...],    ← one per language
+  "vectors": [
+    {"language": "...", "origin": [x,y,z],
+     "direction": [x,y,z], "magnitude": 0.7},
+    ...
+  ],
+  "projection": [[x,y], ...]               ← only present after Project step
+}
+
+The C++ renderer reads only "blended" for the tube sweep — unchanged from v3.
+"streamlines" lets the renderer optionally draw each language line separately.
+"vectors" lets the View Map rebuild the field interactively when languages
+are toggled on/off.
+"""
 
 from __future__ import annotations
 import json
 import numpy as np
 from pipeline.rune_map import RuneMap
+from pipeline.glyph_vector import GlyphVector
 
 
-# ── SVG ─────────────────────────────────────────────────────────────────────
+# ── SVG ──────────────────────────────────────────────────────────────────────
 
 def to_svg(points: np.ndarray, size: int = 512, stroke_width: float = 2.0) -> str:
     """Convert a 2D contour to an SVG string.
@@ -16,10 +37,9 @@ def to_svg(points: np.ndarray, size: int = 512, stroke_width: float = 2.0) -> st
         size        : Canvas size in pixels.
         stroke_width: Stroke width in pixels.
     """
-    margin = size * 0.1
-    scale  = (size - 2 * margin) / 2
-    center = size / 2
-
+    margin  = size * 0.1
+    scale   = (size - 2 * margin) / 2
+    center  = size / 2
     svg_pts = points * [scale, -scale] + [center, center]
 
     d = f"M {svg_pts[0][0]:.2f} {svg_pts[0][1]:.2f}"
@@ -42,114 +62,107 @@ def save_svg(points: np.ndarray, path: str, **kwargs) -> None:
         f.write(to_svg(points, **kwargs))
 
 
-# ── JSON (3D) — version 3 ────────────────────────────────────────────────────
-#
-# Format:
-# {
-#   "version": 3,
-#   "blended":     [[x,y,z], ...],          ← 9th streamline (origin trace)
-#   "streamlines": [[[x,y,z],...], ...],    ← 8 seed streamlines
-#   "languages":   [{"language":..., "weight":...}, ...],
-#   "encodings":   [{"language":..., "weight":..., "signal":[...]}, ...],
-#   "projection":  [[x,y], ...]             ← only in full JSON (save_json)
-# }
-#
-# The C++ renderer reads "blended" for the tube sweep — unchanged from v2.
-# "streamlines" lets the renderer optionally draw each seed line separately.
-# "encodings" lets the View Map rebuild the field interactively.
+# ── JSON helpers ──────────────────────────────────────────────────────────────
 
-def _encoding_list(rune_map: RuneMap) -> list[dict]:
+def _vector_list(rune_map: RuneMap) -> list[dict]:
+    # Effects are parallel to vectors; use 0.0 as a safe default if absent.
+    effects = rune_map.effects or [0.0] * len(rune_map.vectors)
     return [
         {
-            "language": e["language"],
-            "weight":   float(e["weight"]),
-            "signal":   np.asarray(e["signal"], dtype=np.float64).tolist(),
+            "language":  v.language,
+            "origin":    v.origin.tolist(),
+            "direction": v.direction.tolist(),
+            "magnitude": float(v.magnitude),
+            "effect":    float(e),
         }
-        for e in rune_map.encodings
+        for v, e in zip(rune_map.vectors, effects)
     ]
 
 
-def _language_list(rune_map: RuneMap) -> list[dict]:
-    return [
-        {"language": lang, "weight": float(w)}
-        for lang, w in zip(rune_map.languages, rune_map.weights.tolist())
-    ]
-
+# ── JSON (3D) — version 4 ────────────────────────────────────────────────────
 
 def to_json(rune_map: RuneMap, projection: np.ndarray) -> str:
-    """Serialise a RuneMap to JSON for the C++ renderer (version 3)."""
+    """Serialise a RuneMap + 2D projection to JSON (version 4)."""
     data = {
-        "version":     3,
+        "version":     4,
         "blended":     rune_map.blended.tolist(),
         "streamlines": [c.tolist() for c in rune_map.curves],
-        "languages":   _language_list(rune_map),
-        "encodings":   _encoding_list(rune_map),
+        "vectors":     _vector_list(rune_map),
         "projection":  projection.tolist(),
     }
     return json.dumps(data, indent=2)
 
 
 def save_json(rune_map: RuneMap, projection: np.ndarray, path: str) -> None:
-    """Save a RuneMap as the full JSON file for the renderer."""
+    """Save the full JSON (with projection) for the C++ renderer."""
     with open(path, "w") as f:
         f.write(to_json(rune_map, projection))
 
 
-# ── Intermediate map (3D only, no projection) ────────────────────────────────
-
 def save_map(rune_map: RuneMap, path: str) -> None:
-    """Save the 3D rune map without projection for intermediate storage.
+    """Save the 3D rune map without projection (intermediate after Generate).
 
     The C++ renderer can still read this (it only needs 'blended').
     Use load_map() to restore it for the Project step or View Map.
     """
     data = {
-        "version":     3,
+        "version":     4,
         "blended":     rune_map.blended.tolist(),
         "streamlines": [c.tolist() for c in rune_map.curves],
-        "languages":   _language_list(rune_map),
-        "encodings":   _encoding_list(rune_map),
+        "vectors":     _vector_list(rune_map),
     }
     with open(path, "w") as f:
         f.write(json.dumps(data, indent=2))
 
 
 def load_map(path: str) -> RuneMap:
-    """Reload a RuneMap from a map JSON (produced by save_map or save_json).
+    """Reload a RuneMap from a JSON file (v4 current, v3 legacy).
 
-    Handles both v3 (current) and v2 (legacy) formats.
+    v4: reads vectors directly.
+    v3: streamlines + languages/encodings — vectors will be empty (View Map
+        language toggle won't work, but render still works via blended).
     """
     with open(path) as f:
         data = json.load(f)
 
     version = data.get("version", 1)
 
-    if version >= 3:
+    if version >= 4:
         curves  = [np.array(s, dtype=np.float64) for s in data["streamlines"]]
         blended = np.array(data["blended"], dtype=np.float64)
-        langs   = [e["language"] for e in data["languages"]]
-        weights = np.array([e["weight"] for e in data["languages"]], dtype=np.float64)
-        encodings = [
-            {
-                "language": e["language"],
-                "weight":   float(e["weight"]),
-                "signal":   np.array(e["signal"], dtype=np.float64),
-            }
-            for e in data.get("encodings", [])
+        raw_vecs = data.get("vectors", [])
+        vectors = [
+            GlyphVector(
+                language=v["language"],
+                origin=np.array(v["origin"],    dtype=np.float64),
+                direction=np.array(v["direction"], dtype=np.float64),
+                magnitude=float(v["magnitude"]),
+            )
+            for v in raw_vecs
         ]
+        languages = [v.language for v in vectors]
+        # "effect" is new in v4.1 — older v4 files won't have it.
+        effects = [float(v.get("effect", 0.0)) for v in raw_vecs]
+
     else:
-        # Legacy v2: per-curve {language, weight, points}
-        curves_data = data.get("curves", [])
-        curves      = [np.array(c["points"], dtype=np.float64) for c in curves_data]
-        blended     = np.array(data["blended"], dtype=np.float64)
-        langs       = [c["language"] for c in curves_data]
-        weights     = np.array([c["weight"] for c in curves_data], dtype=np.float64)
-        encodings   = []
+        # Legacy v3: load what we can, vectors will be empty
+        raw_sl = data.get("streamlines", data.get("curves", []))
+        if raw_sl and isinstance(raw_sl[0], dict):
+            # Very old v2 format: [{language, weight, points}]
+            curves    = [np.array(c["points"], dtype=np.float64) for c in raw_sl]
+            languages = [c["language"] for c in raw_sl]
+        else:
+            curves    = [np.array(s, dtype=np.float64) for s in raw_sl]
+            lang_entries = data.get("languages", [])
+            languages = [e["language"] for e in lang_entries]
+        blended = np.array(data["blended"], dtype=np.float64)
+        vectors = []
+        effects = []
 
     return RuneMap(
         curves=curves,
         blended=blended,
-        weights=weights,
-        languages=langs,
-        encodings=encodings,
+        vectors=vectors,
+        languages=languages,
+        effects=effects,
     )

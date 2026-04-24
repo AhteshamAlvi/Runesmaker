@@ -38,5 +38,6 @@ def project(rune_map: RuneMap) -> np.ndarray:
     different projection strategy. The signature must stay the same.
 
     Current: orthographic — drop Z, return (x, y) of blended curve.
+    blended is the centroid-origin streamline normalised to [−1, 1]³.
     """
     return rune_map.blended[:, :2].copy()

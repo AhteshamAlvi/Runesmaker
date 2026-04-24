@@ -60,9 +60,9 @@ class RunesmakerApp:
         self.translations = {}
         self.current_index = 0
         self.csv_path = None
-        self.generated_map_path = None   # {name}_map.json — 3D rune map only
-        self.generated_svg_path = None   # {name}.svg       — 2D projection
-        self.generated_json_path = None  # {name}.json      — full JSON for renderer
+        self.generated_json_path = None  # {name}.json — single source of truth
+        self.generated_svg_path  = None  # {name}.svg  — 2D projection preview
+        self.has_projection      = False # True after Project step adds projection
 
 
         # --- Build UI directly into root (no Canvas scroll wrapper needed) ---
@@ -156,7 +156,7 @@ class RunesmakerApp:
 
         # Stage 1 — Generate 3D map
         stage1_row = ttk.Frame(action_frame)
-        stage1_row.pack(fill="x", pady=(0, 4))
+        stage1_row.pack(fill="x", pady=(0, 2))
         ttk.Label(stage1_row, text="1.", width=2).pack(side="left")
         self.gen_btn = ttk.Button(stage1_row, text="Generate", command=self._generate)
         self.gen_btn.pack(side="left")
@@ -164,6 +164,16 @@ class RunesmakerApp:
                                        command=self._view_map, state="disabled")
         self.view_map_btn.pack(side="left", padx=(6, 0))
         ttk.Label(stage1_row, text="— build 3D rune map", foreground="gray").pack(side="left", padx=(8, 0))
+
+        # Progress bar for Generate (shown inline below the buttons)
+        gen_prog_row = ttk.Frame(action_frame)
+        gen_prog_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(gen_prog_row, text="", width=2).pack(side="left")   # indent to align
+        self.gen_progress = ttk.Progressbar(gen_prog_row, maximum=100,
+                                            length=180, mode="determinate")
+        self.gen_progress.pack(side="left")
+        self.gen_progress_pct = ttk.Label(gen_prog_row, text="", width=5, anchor="e")
+        self.gen_progress_pct.pack(side="left", padx=(4, 0))
 
         # Stage 2 — Project to 2D SVG
         stage2_row = ttk.Frame(action_frame)
@@ -244,27 +254,35 @@ class RunesmakerApp:
             self.save_status_var.set(f"New rune: {name}")
 
         rune_dir  = os.path.join(OUTPUT_DIR, f"{name} Rune")
-        map_path  = os.path.join(rune_dir, f"{name}_map.json")
-        svg_path  = os.path.join(rune_dir, f"{name}.svg")
         json_path = os.path.join(rune_dir, f"{name}.json")
+        svg_path  = os.path.join(rune_dir, f"{name}.svg")
 
-        # Restore pipeline state from whatever output files exist
-        self.generated_map_path  = map_path  if os.path.isfile(map_path)  else None
-        self.generated_svg_path  = svg_path  if os.path.isfile(svg_path)  else None
-        self.generated_json_path = json_path if os.path.isfile(json_path) else None
+        if os.path.isfile(json_path):
+            self.generated_json_path = json_path
+            self.generated_svg_path  = svg_path if os.path.isfile(svg_path) else None
+            # Peek inside to see if projection has been computed yet
+            try:
+                import json as _json
+                with open(json_path) as f:
+                    _d = _json.load(f)
+                self.has_projection = "projection" in _d
+            except Exception:
+                self.has_projection = False
 
-        map_ready  = self.generated_map_path  is not None
-        json_ready = self.generated_json_path is not None
-
-        self.view_map_btn.config(state="normal"   if map_ready  else "disabled")
-        self.project_btn.config( state="normal"   if map_ready  else "disabled")
-        self.render_btn.config(  state="normal"   if json_ready else "disabled")
-
-        if json_ready:
-            self.status_var.set(f"Loaded existing rune from {rune_dir}")
-        elif map_ready:
-            self.status_var.set(f"Map loaded — press Project to generate SVG")
+            self.view_map_btn.config(state="normal")
+            self.project_btn.config(state="normal")
+            self.render_btn.config(state="normal")
+            if self.has_projection:
+                self.status_var.set(f"Loaded existing rune from {rune_dir}")
+            else:
+                self.status_var.set("Map loaded — press Project to generate SVG")
         else:
+            self.generated_json_path = None
+            self.generated_svg_path  = None
+            self.has_projection      = False
+            self.view_map_btn.config(state="disabled")
+            self.project_btn.config(state="disabled")
+            self.render_btn.config(state="disabled")
             self.status_var.set("Ready")
 
     # --- Navigation ---
@@ -517,6 +535,7 @@ class RunesmakerApp:
         self.view_map_btn.config(state="disabled")
         self.project_btn.config(state="disabled")
         self.render_btn.config(state="disabled")
+        self._set_gen_progress(0)
         self.status_var.set("Generating 3D rune map...")
 
         threading.Thread(target=self._run_generate, args=(self.csv_path, name), daemon=True).start()
@@ -525,7 +544,6 @@ class RunesmakerApp:
         try:
             from pipeline.loader import load_translations
             from pipeline.glyph_extract import extract_glyphs
-            from pipeline.weights import compute_weights
             from pipeline.rune_map import build_rune_map
             from pipeline.export import save_map
 
@@ -533,26 +551,36 @@ class RunesmakerApp:
             os.makedirs(rune_dir, exist_ok=True)
 
             translations = load_translations(csv_path)
-            contours = extract_glyphs(translations)
+
+            def on_progress(done, total):
+                pct = int(done / total * 100)
+                self.root.after(0, self._set_gen_progress, pct)
+
+            contours = extract_glyphs(translations, on_progress=on_progress)
 
             if not contours:
                 self.root.after(0, self._gen_error, "No glyphs extracted. Add fonts to fonts/ directory.")
                 return
 
-            weights  = compute_weights(contours)
-            rune_map = build_rune_map(contours, weights)
+            rune_map = build_rune_map(contours)
 
-            map_path = os.path.join(rune_dir, f"{name}_map.json")
-            save_map(rune_map, map_path)
+            json_path = os.path.join(rune_dir, f"{name}.json")
+            save_map(rune_map, json_path)
 
-            self.generated_map_path = map_path
-            self.root.after(0, self._gen_done, map_path,
+            self.generated_json_path = json_path
+            self.has_projection      = False
+            self.root.after(0, self._gen_done, json_path,
                             len(contours), len(rune_map.curves))
 
         except Exception as e:
             self.root.after(0, self._gen_error, str(e))
 
-    def _gen_done(self, map_path, n_langs, n_streamlines):
+    def _set_gen_progress(self, pct):
+        self.gen_progress["value"] = pct
+        self.gen_progress_pct.config(text=f"{pct}%")
+
+    def _gen_done(self, json_path, n_langs, n_streamlines):
+        self._set_gen_progress(100)
         self.status_var.set(
             f"3D map built — {n_langs} languages → {n_streamlines} streamlines. "
             "Press Project to generate SVG."
@@ -560,15 +588,18 @@ class RunesmakerApp:
         self.gen_btn.config(state="normal")
         self.view_map_btn.config(state="normal")
         self.project_btn.config(state="normal")
+        self.render_btn.config(state="normal")
 
     def _gen_error(self, msg):
+        self._set_gen_progress(0)
+        self.gen_progress_pct.config(text="")
         self.status_var.set(f"Error: {msg}")
         self.gen_btn.config(state="normal")
 
     # --- Stage 1b: View 3D map (interactive, rotatable, live language filter) ---
 
     def _view_map(self):
-        if not self.generated_map_path or not os.path.isfile(self.generated_map_path):
+        if not self.generated_json_path or not os.path.isfile(self.generated_json_path):
             messagebox.showerror("No map", "Generate a 3D map first.")
             return
 
@@ -576,80 +607,142 @@ class RunesmakerApp:
         import math
         import colorsys
         import numpy as np
-        from pipeline.rune_map import rebuild_from_encodings
+        from pipeline.rune_map import _build_proximity_field
+        from pipeline.glyph_vector import GlyphVector
 
-        with open(self.generated_map_path) as f:
+        with open(self.generated_json_path) as f:
             data = json.load(f)
 
         name = self.name_var.get().strip() or "Rune"
 
-        # ── Parse data ────────────────────────────────────────────────────
-        # Streamlines (the 8 seed curves)
-        raw_curves  = [np.array(s, dtype=np.float64) for s in data["streamlines"]]
-        raw_blended = np.array(data["blended"], dtype=np.float64)
+        # ── Parse vectors ─────────────────────────────────────────────────
+        vector_entries = data.get("vectors", [])
+        if not vector_entries:
+            messagebox.showerror("No vectors",
+                "This rune was built with an old format. Regenerate it.")
+            return
 
-        # Per-language metadata (for table + interactive rebuild)
-        lang_entries = data.get("languages", [])
-        encodings    = data.get("encodings", [])
-        n_langs      = len(lang_entries)
+        n_langs = len(vector_entries)
+        langs   = [v["language"]         for v in vector_entries]
+        mags    = [float(v["magnitude"]) for v in vector_entries]
+        # "effect" = true kernel-weighted share of each language's influence on
+        # the blended streamline. Computed at generation time; sums to 1 across
+        # languages. Falls back to magnitude for legacy files that lack it.
+        effects = [float(v.get("effect", v["magnitude"])) for v in vector_entries]
+        origins = np.array([v["origin"]    for v in vector_entries], dtype=np.float64)
 
-        # Steps = length of each streamline
-        steps = len(raw_blended)
+        # ── Display normalisation (uniform scale so directions are preserved) ──
+        center_3d = origins.mean(axis=0)
+        extent_3d = float(np.abs(origins - center_3d).max()) or 1.0
+        half_size = extent_3d * 1.6    # expand 60% past origin spread
 
-        # Language display data
-        langs = [e["language"] for e in lang_entries]
-        wts   = [float(e["weight"]) for e in lang_entries]
+        def to_disp(pt):
+            """Actual coordinate → display [-1, 1]³ (uniform scale)."""
+            return (np.asarray(pt, dtype=np.float64) - center_3d) / half_size
 
-        # Color per language: high weight → red, low weight → blue
-        wts_arr      = np.array(wts)
-        w_lo, w_hi   = wts_arr.min(), wts_arr.max()
-        w_span       = (w_hi - w_lo) or 1.0
-        def lang_color(w):
-            t   = (w - w_lo) / w_span
-            hue = (1.0 - t) * 0.65
+        # ── Sample grid in actual coordinate space ────────────────────────
+        GRID_RES = 7
+        lo, hi   = center_3d - half_size, center_3d + half_size
+        ts       = np.linspace(0, 1, GRID_RES, endpoint=False) + 0.5 / GRID_RES
+        gx, gy, gz = np.meshgrid(ts, ts, ts, indexing="ij")
+        grid_actual = np.stack([
+            lo[0] + gx.ravel() * (hi[0] - lo[0]),
+            lo[1] + gy.ravel() * (hi[1] - lo[1]),
+            lo[2] + gz.ravel() * (hi[2] - lo[2]),
+        ], axis=1)                                          # (GRID_RES³, 3)
+        grid_disp = np.array([to_disp(p) for p in grid_actual])
+
+        # ── Colour helpers ────────────────────────────────────────────────
+        # Colour by EFFECT (share of influence), not magnitude — so colour
+        # and percentage agree visually: red = biggest contributor, blue = smallest.
+        eff_arr    = np.array(effects)
+        e_lo, e_hi = eff_arr.min(), eff_arr.max()
+        e_span     = (e_hi - e_lo) or 1.0
+
+        def lang_color(e):
+            t   = (e - e_lo) / e_span
+            hue = (1.0 - t) * 0.65     # red (high) → blue (low)
             r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 0.92)
             return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
-        lang_colors  = [lang_color(w) for w in wts]
-        sorted_langs = sorted(range(n_langs), key=lambda i: wts[i], reverse=True)
 
-        # Color per streamline (fixed hue wheel — streamlines ≠ languages)
-        n_curves = len(raw_curves)
-        def curve_color(i):
-            r, g, b = colorsys.hsv_to_rgb(i / max(n_curves, 1), 0.6, 0.85)
-            return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
-        curve_colors = [curve_color(i) for i in range(n_curves)]
+        lang_colors  = [lang_color(e) for e in effects]
+        # Sort by real influence — dominant contributors surface at the top.
+        sorted_langs = sorted(range(n_langs), key=lambda i: effects[i], reverse=True)
 
-        # ── Mutable view state (updated by language toggles) ──────────────
-        view = {
-            "curves":      raw_curves,
-            "blended":     raw_blended,
-            "rebuilding":  False,
-        }
+        # Rescale effects to percentages. Sum is ~1.0; showing e.g. 0.03 reads
+        # as "3% of the rune came from this language", which is the honest thing.
+        eff_pct = [e * 100.0 for e in effects]
+
+        # Arrow scale constants
+        LANG_LEN      = 0.40   # language vectors — prominent, mag-scaled
+        FIELD_LEN_MAX = 0.30   # field sample arrow length at peak magnitude
+        FIELD_MIN_VIS = 0.02   # below this normalised mag, arrow is hidden
+
+        # ── Mutable state ─────────────────────────────────────────────────
+        view = {"field_arrows": [], "selected_idx": list(range(n_langs))}
+
+        # ── Helpers ───────────────────────────────────────────────────────
+        def _make_glyph_vecs(selected_idx):
+            """Build renormalised GlyphVector list from selected indices."""
+            vecs = [
+                GlyphVector(
+                    language=vector_entries[i]["language"],
+                    origin=np.array(vector_entries[i]["origin"],     dtype=np.float64),
+                    direction=np.array(vector_entries[i]["direction"], dtype=np.float64),
+                    magnitude=float(vector_entries[i]["magnitude"]),
+                )
+                for i in selected_idx
+            ]
+            if not vecs:
+                return vecs
+            max_m = max(v.magnitude for v in vecs) or 1.0
+            return [GlyphVector(v.language, v.origin, v.direction, v.magnitude / max_m)
+                    for v in vecs]
+
+        def _eval_grid(V):
+            """Evaluate V at every grid point → list of (base_disp, unit_dir, mag).
+
+            Magnitudes are rescaled so peak = 1.0 across the whole grid. The
+            field is proximity-based (unnormalised kernel sum), so far-from-
+            origin samples naturally fall near zero and get culled at draw
+            time. This gives the strong size contrast we want.
+            """
+            raw = []
+            peak = 0.0
+            for pt_a, pt_d in zip(grid_actual, grid_disp):
+                fv  = V(pt_a)
+                mag = float(np.linalg.norm(fv))
+                unit = fv / mag if mag > 1e-8 else np.zeros(3)
+                if mag > peak:
+                    peak = mag
+                raw.append((pt_d, unit, mag))
+            scale = 1.0 / peak if peak > 1e-8 else 0.0
+            return [(bd, u, m * scale) for (bd, u, m) in raw]
 
         # ── Window ────────────────────────────────────────────────────────
         win = tk.Toplevel(self.root)
-        win.title(f"3D Map — {name}")
-        win.geometry("700x900")
+        win.title(f"Vector Field — {name}")
+        win.geometry("700x940")
         win.resizable(True, True)
 
         hdr = ttk.Frame(win)
         hdr.pack(fill="x", padx=12, pady=(10, 2))
         ttk.Label(hdr,
-                  text=f"{n_langs} languages  ·  {n_curves} streamlines  ·  {steps} steps",
+                  text=f"{n_langs} language vectors  ·  {GRID_RES**3} field samples",
                   font=("", 12, "bold")).pack(side="left")
         ttk.Label(hdr, text="drag to rotate  ·  scroll to zoom",
                   foreground="gray").pack(side="right")
 
-        rebuild_status = tk.StringVar(value="")
-        ttk.Label(win, textvariable=rebuild_status,
+        field_status = tk.StringVar(value=f"All {n_langs} languages active")
+        ttk.Label(win, textvariable=field_status,
                   foreground="gray").pack(anchor="e", padx=12)
 
         # ── 3D Canvas ─────────────────────────────────────────────────────
         CS  = 500
-        PAD = 36
+        PAD = 40
 
         canvas = tk.Canvas(win, width=CS, height=CS,
-                           bg="#111111", highlightthickness=0)
+                           bg="#0d0d14", highlightthickness=0)
         canvas.pack(padx=12, pady=(2, 6))
 
         cam = {"az": 0.4, "el": 0.25, "zoom": 1.0, "mx": 0, "my": 0}
@@ -661,24 +754,19 @@ class RunesmakerApp:
             Rx = np.array([[1, 0, 0], [0, ce, -se], [0, se, ce]])
             return Rx @ Ry
 
-        def to_canvas(pts):
-            """Project (N,3) array → flat [x,y,...] canvas list."""
-            R    = make_R(cam["az"], cam["el"])
-            rot  = pts @ R.T
+        def rot_pt(pt_d, R):
+            """Rotate a display-space 3D point, return canvas (x, y, depth)."""
+            r    = R @ np.asarray(pt_d, dtype=np.float64)
             zoom = cam["zoom"]
-            px   = CS/2 + rot[:, 0] * zoom * (CS/2 - PAD)
-            py   = CS/2 - rot[:, 1] * zoom * (CS/2 - PAD)
-            out  = []
-            for x, y in zip(px.tolist(), py.tolist()):
-                out.append(x); out.append(y)
-            return out, rot[:, 2]
+            x    = CS / 2 + r[0] * zoom * (CS / 2 - PAD)
+            y    = CS / 2 - r[1] * zoom * (CS / 2 - PAD)
+            return x, y, float(r[2])
 
-        def draw_axes():
-            R    = make_R(cam["az"], cam["el"])
+        def draw_axes(R):
             tips = np.array([[0.18,0,0],[0,0.18,0],[0,0,0.18]])
             rot  = tips @ R.T
             zoom = cam["zoom"]
-            ox, oy = CS/2, CS/2
+            ox, oy = CS / 2, CS / 2
             for i, (col, lbl) in enumerate([("#ff5555","X"),("#55ff55","Y"),("#5555ff","Z")]):
                 ex = CS/2 + rot[i,0] * zoom * (CS/2 - PAD)
                 ey = CS/2 - rot[i,1] * zoom * (CS/2 - PAD)
@@ -687,28 +775,89 @@ class RunesmakerApp:
 
         def redraw():
             canvas.delete("all")
-            curves  = view["curves"]
-            blended = view["blended"]
+            R    = make_R(cam["az"], cam["el"])
+            sel  = view["selected_idx"]
 
-            # Depth-sort streamlines back → front
-            R = make_R(cam["az"], cam["el"])
-            depths = [(c @ R.T)[:, 2].mean() for c in curves]
-            order  = np.argsort(depths)
+            # --- Collect all items with depth for painter's sort ---
+            items = []  # (depth, kind, bx, by, tx, ty, color)
 
-            for i in order:
-                coords, _ = to_canvas(curves[i])
-                if len(coords) >= 4:
-                    canvas.create_line(*coords, fill=curve_colors[i],
-                                       width=1, smooth=True)
+            # Field sample arrows — length is normalised magnitude × FIELD_LEN_MAX.
+            # mag here is already in [0, 1] (rescaled by _eval_grid).
+            # Weak samples (far from every origin) are culled entirely.
+            for base_d, unit, mag in view["field_arrows"]:
+                if mag < FIELD_MIN_VIS:
+                    continue
+                tip_d  = base_d + unit * FIELD_LEN_MAX * mag
+                bx, by, bd = rot_pt(base_d, R)
+                tx, ty, td = rot_pt(tip_d,  R)
+                depth = (bd + td) / 2
 
-            # Blended (9th streamline from origin) — thick white
-            coords, _ = to_canvas(blended)
-            if len(coords) >= 4:
-                canvas.create_line(*coords, fill="white", width=3, smooth=True)
+                # Colour: dim blue-grey at low mag, bright cyan at high mag
+                t  = mag
+                rv = int(20  + t * 60)
+                gv = int(70  + t * 130)
+                bv = int(140 + t * 115)
+                col = f"#{rv:02x}{gv:02x}{bv:02x}"
+                items.append((depth, "field", bx, by, tx, ty, col, mag))
 
-            draw_axes()
-            canvas.create_text(PAD, 16, text="─── origin streamline",
-                               fill="white", anchor="w", font=("", 9))
+            # Language vectors (thick, coloured, length = mag * LANG_LEN)
+            for i in sel:
+                orig_d = to_disp(np.array(vector_entries[i]["origin"],     dtype=np.float64))
+                d_dir  = np.array(vector_entries[i]["direction"], dtype=np.float64)
+                mag_i  = float(vector_entries[i]["magnitude"])
+                tip_d  = orig_d + d_dir * LANG_LEN * mag_i
+
+                ox, oy, od = rot_pt(orig_d, R)
+                tx, ty, td = rot_pt(tip_d,  R)
+                depth = (od + td) / 2
+                items.append((depth, "lang", ox, oy, tx, ty, lang_colors[i], 1.0))
+
+            # Depth sort: back → front
+            items.sort(key=lambda x: x[0])
+
+            for depth, kind, bx, by, tx, ty, col, mag in items:
+                if kind == "field":
+                    # Scale arrowhead and width with magnitude so big arrows
+                    # read as "field peaks", tiny ones stay visually quiet.
+                    w    = max(1, int(round(1 + mag * 2)))
+                    head = (int(3 + mag * 8),
+                            int(4 + mag * 10),
+                            max(1, int(1 + mag * 4)))
+                    canvas.create_line(bx, by, tx, ty,
+                                       fill=col, width=w,
+                                       arrow=tk.LAST, arrowshape=head)
+                else:
+                    # Language vector: dot at origin + thick arrow
+                    canvas.create_oval(bx-3, by-3, bx+3, by+3,
+                                       fill=col, outline="")
+                    canvas.create_line(bx, by, tx, ty,
+                                       fill=col, width=3,
+                                       arrow=tk.LAST, arrowshape=(10, 13, 5))
+
+            draw_axes(R)
+
+            # Legend
+            canvas.create_text(PAD, 16,
+                text="● ──▶  language vector (thick, coloured)",
+                fill="#aaaaaa", anchor="w", font=("", 9))
+            canvas.create_text(PAD, 30,
+                text="  ──▶  field sample  (thin, length = local magnitude)",
+                fill="#507090", anchor="w", font=("", 9))
+
+        # ── Rebuild field on language toggle (fast — no thread needed) ────
+        def _rebuild(active_indices):
+            sel = sorted(active_indices)
+            view["selected_idx"] = sel
+            if not sel:
+                view["field_arrows"] = []
+                field_status.set("No languages selected — field is empty")
+                redraw()
+                return
+            vecs = _make_glyph_vecs(sel)
+            V    = _build_proximity_field(vecs)
+            view["field_arrows"] = _eval_grid(V)
+            field_status.set(f"Showing {len(sel)} / {n_langs} languages")
+            redraw()
 
         # ── Mouse bindings ────────────────────────────────────────────────
         def on_press(e):
@@ -724,7 +873,7 @@ class RunesmakerApp:
 
         def on_scroll(e):
             factor = 1.1 if (getattr(e, "delta", 0) > 0
-                             or getattr(e, "num", 0) == 4) else 1/1.1
+                             or getattr(e, "num", 0) == 4) else 1 / 1.1
             cam["zoom"] = max(0.2, min(5.0, cam["zoom"] * factor))
             redraw()
 
@@ -736,45 +885,15 @@ class RunesmakerApp:
 
         # ── Language selection table ──────────────────────────────────────
         tbl_frame = ttk.LabelFrame(
-            win, text="Languages — click to show/hide  (rebuilds field with selected languages)",
+            win,
+            text="Languages — click to add / remove from field",
             padding=6)
         tbl_frame.pack(fill="both", expand=True, padx=12, pady=(0, 10))
 
         btn_row = ttk.Frame(tbl_frame)
         btn_row.pack(fill="x", pady=(0, 4))
 
-        selected_langs = set(range(n_langs))   # indices into lang_entries / encodings
-
-        def _rebuild(active_indices):
-            """Run rebuild_from_encodings in a background thread."""
-            if view["rebuilding"]:
-                return
-            if not encodings:
-                redraw()
-                return
-            view["rebuilding"] = True
-            rebuild_status.set("Rebuilding field…")
-
-            active_enc = [encodings[i] for i in sorted(active_indices)]
-
-            def worker():
-                try:
-                    new_curves, new_blended = rebuild_from_encodings(
-                        active_enc, steps=steps)
-                    win.after(0, _apply, new_curves, new_blended)
-                except Exception as exc:
-                    win.after(0, lambda: rebuild_status.set(f"Error: {exc}"))
-                    win.after(0, lambda: setattr(view, "rebuilding", False))
-
-            def _apply(new_curves, new_blended):
-                view["curves"]     = new_curves
-                view["blended"]    = new_blended
-                view["rebuilding"] = False
-                rebuild_status.set(
-                    f"Showing {len(active_enc)} / {n_langs} languages")
-                redraw()
-
-            threading.Thread(target=worker, daemon=True).start()
+        selected_langs = set(range(n_langs))
 
         def select_all():
             selected_langs.update(range(n_langs))
@@ -784,7 +903,6 @@ class RunesmakerApp:
             _rebuild(selected_langs)
 
         def select_none():
-            # Keep at least the top-weighted language visible
             selected_langs.clear()
             for i in range(n_langs):
                 tree.set(str(i), "check", "✗")
@@ -792,7 +910,7 @@ class RunesmakerApp:
             _rebuild(selected_langs)
 
         ttk.Button(btn_row, text="Select All",  command=select_all).pack(side="left")
-        ttk.Button(btn_row, text="Select None", command=select_none).pack(side="left", padx=(6,0))
+        ttk.Button(btn_row, text="Select None", command=select_none).pack(side="left", padx=(6, 0))
 
         tree = ttk.Treeview(tbl_frame,
                             columns=("check", "swatch", "language", "effect"),
@@ -806,10 +924,9 @@ class RunesmakerApp:
         tree.column("language", width=190, stretch=True)
         tree.column("effect",   width=210, stretch=False, anchor="e")
 
-        # Rows sorted heaviest → lightest; iid = original language index
         for rank, i in enumerate(sorted_langs):
             tree.insert("", "end", iid=str(i),
-                        values=("✓", "■", langs[i], f"{wts[i]*100:.3f}%"),
+                        values=("✓", "■", langs[i], f"{eff_pct[i]:.2f}%"),
                         tags=(f"lc{i}",))
             tree.tag_configure(f"lc{i}", foreground=lang_colors[i])
 
@@ -835,12 +952,13 @@ class RunesmakerApp:
         tree.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
 
-        redraw()
+        # Initial draw with all languages
+        _rebuild(selected_langs)
 
     # --- Stage 2: Project 3D map → 2D SVG ---
 
     def _project(self):
-        if not self.generated_map_path or not os.path.isfile(self.generated_map_path):
+        if not self.generated_json_path or not os.path.isfile(self.generated_json_path):
             messagebox.showerror("No map", "Generate a 3D map first.")
             return
 
@@ -854,23 +972,24 @@ class RunesmakerApp:
         self.status_var.set("Projecting to 2D SVG...")
 
         rune_dir = os.path.join(OUTPUT_DIR, f"{name} Rune")
-        threading.Thread(target=self._run_project, args=(self.generated_map_path, rune_dir, name), daemon=True).start()
+        threading.Thread(target=self._run_project,
+                         args=(self.generated_json_path, rune_dir, name),
+                         daemon=True).start()
 
-    def _run_project(self, map_path, rune_dir, name):
+    def _run_project(self, json_path, rune_dir, name):
         try:
             from pipeline.project import project
             from pipeline.export import load_map, save_svg, save_json
 
-            rune_map = load_map(map_path)
+            rune_map = load_map(json_path)
             proj_2d  = project(rune_map)
 
-            svg_path  = os.path.join(rune_dir, f"{name}.svg")
-            json_path = os.path.join(rune_dir, f"{name}.json")
+            svg_path = os.path.join(rune_dir, f"{name}.svg")
             save_svg(proj_2d, svg_path)
-            save_json(rune_map, proj_2d, json_path)
+            save_json(rune_map, proj_2d, json_path)   # overwrite same file with projection added
 
-            self.generated_svg_path  = svg_path
-            self.generated_json_path = json_path
+            self.generated_svg_path = svg_path
+            self.has_projection     = True
             self.root.after(0, self._project_done, svg_path)
 
         except Exception as e:

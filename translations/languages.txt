@@ -96,11 +96,13 @@ Serbian
 Sesotho
 Sindhi
 Sinhala
+Slovak
 Slovenian
 Somali
 Spanish
 Sundanese
 Swahili
+Swedish
 Tajik
 Tamil
 Tatar
@@ -120,3 +122,4 @@ Welsh
 Xhosa
 Yiddish
 Yoruba
+Zulu

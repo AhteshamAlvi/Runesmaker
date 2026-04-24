@@ -171,12 +171,18 @@ def extract_word_glyph(text: str, language: str, font_paths: list[str]) -> Glyph
     font.close()
     return contour
 
-def extract_glyphs(translations: list[dict], font_paths: list[str] | None = None) -> list[GlyphContour]:
+def extract_glyphs(
+    translations: list[dict],
+    font_paths: list[str] | None = None,
+    on_progress=None,
+) -> list[GlyphContour]:
     """Extract glyph contours for all translations.
 
     Args:
         translations: List of dicts from translate.translate_word().
-        font_paths: Font paths to search.
+        font_paths:   Font paths to search.
+        on_progress:  Optional callable(done: int, total: int) called after
+                      each language is processed (for progress bars).
 
     Returns:
         List of GlyphContour objects (skips characters without font coverage).
@@ -184,16 +190,15 @@ def extract_glyphs(translations: list[dict], font_paths: list[str] | None = None
     if font_paths is None:
         font_paths = list_fonts()
 
+    valid = [t for t in translations if t.get("translation", "").strip()]
+    total = len(valid)
     contours = []
-    for t in translations:
-        text = t["translation"]
-        if not text or not text.strip():
-            continue
 
-        # Use HarfBuzz to shape the full word — handles ligatures, kerning,
-        # and bidirectional scripts correctly
-        contour = extract_word_glyph(text.strip(), t["language"], font_paths)
+    for done, t in enumerate(valid, start=1):
+        contour = extract_word_glyph(t["translation"].strip(), t["language"], font_paths)
         if contour is not None:
             contours.append(contour)
+        if on_progress:
+            on_progress(done, total)
 
     return contours
