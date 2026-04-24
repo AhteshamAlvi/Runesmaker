@@ -1,10 +1,12 @@
-"""Layered backbone render — dominant flows + faint field.
+"""Layered backbone — thin field of tubes with a thick dominant backbone.
 
-Renders:
-    - Backbone: top-K curves (by magnitude), thick + opaque
-    - Field: all curves, thin + low opacity
+Every streamline is emitted as a thin tube (the background field). The
+top-K highest-magnitude curves are *also* emitted as a thicker,
+higher-poly tube drawn coincident with the thin one — visually they read
+as a single thick stroke while the rest of the field hums quietly behind.
 
-Creates strong visual hierarchy while preserving full structure.
+Creates strong visual hierarchy in 3D: a few structural backbones stand
+out of a faint web of language lines.
 """
 
 from __future__ import annotations
@@ -12,92 +14,48 @@ import numpy as np
 
 from pipeline.rune_map import RuneMap
 from pipeline.output.render_methods._util import (
-    to_canvas,
-    polyline_d,
-    svg_document,
-    lerp_color,
+    tube_spec,
+    render_spec,
+    normalize_minmax,
 )
 
 
-# ── Config ───────────────────────────────────────────────────
+# ── Config ───────────────────────────────────────────────────────────────────
 
-# Backbone selection
-TOP_K = 8
+TOP_K         = 8
 
-# Backbone styling
-BACKBONE_MIN_WIDTH = 2.0
-BACKBONE_MAX_WIDTH = 6.0
-BACKBONE_OPACITY   = 0.95
+FIELD_RADIUS  = 0.004
+FIELD_SIDES   = 6
 
-# Field styling
-FIELD_WIDTH   = 0.6
-FIELD_OPACITY = 0.15
-
-# Colors
-LOW_COLOR  = (120, 120, 120)
-HIGH_COLOR = (0, 0, 0)
+BACKBONE_MIN  = 0.020
+BACKBONE_MAX  = 0.050
+BACKBONE_SIDES = 10
 
 
-# ── Render ───────────────────────────────────────────────────
+# ── Render ───────────────────────────────────────────────────────────────────
 
-def render(rune_map: RuneMap) -> str:
-    curves = rune_map.curves
-    mags   = np.array([v.magnitude for v in rune_map.vectors])
+def render(rune_map: RuneMap) -> dict:
+    if not rune_map.curves:
+        return render_spec("layered_backbone")
 
-    if not curves:
-        return svg_document("")
+    mags     = np.array([v.magnitude for v in rune_map.vectors])
+    m_norm   = normalize_minmax(mags)
+    top_idx  = set(np.argsort(-m_norm)[:TOP_K])
 
-    # ── Normalize magnitudes ──
-    m_min, m_max = mags.min(), mags.max()
-    denom = (m_max - m_min) if (m_max - m_min) > 1e-8 else 1.0
-    mags_norm = (mags - m_min) / denom
+    tubes: list[dict] = []
 
-    # ── Select backbone indices ──
-    idx_sorted = np.argsort(-mags_norm)
-    backbone_idx = set(idx_sorted[:TOP_K])
+    # Field layer — every streamline, thin.
+    for curve in rune_map.curves:
+        t = tube_spec(curve, radius=FIELD_RADIUS, sides=FIELD_SIDES)
+        if t is not None:
+            tubes.append(t)
 
-    body_parts = []
+    # Backbone layer — top-K, thick.
+    for i in top_idx:
+        curve = rune_map.curves[i]
+        r     = BACKBONE_MIN + float(m_norm[i]) * (BACKBONE_MAX - BACKBONE_MIN)
+        t     = tube_spec(curve, radius=r, sides=BACKBONE_SIDES)
+        if t is not None:
+            tubes.append(t)
 
-    # ── Layer 2: Field (draw first, underneath) ──
-    for i, (curve, m) in enumerate(zip(curves, mags_norm)):
-        pts = to_canvas(curve[:, :2])
-        d = polyline_d(pts)
-        if not d:
-            continue
-
-        color = lerp_color(m, LOW_COLOR, HIGH_COLOR)
-
-        body_parts.append(
-            f'<path d="{d}" '
-            f'stroke="{color}" '
-            f'stroke-width="{FIELD_WIDTH}" '
-            f'opacity="{FIELD_OPACITY}" '
-            f'fill="none" '
-            f'stroke-linecap="round" '
-            f'stroke-linejoin="round"/>'
-        )
-
-    # ── Layer 1: Backbone (draw on top) ──
-    for i in backbone_idx:
-        curve = curves[i]
-        m     = mags_norm[i]
-
-        pts = to_canvas(curve[:, :2])
-        d = polyline_d(pts)
-        if not d:
-            continue
-
-        width = BACKBONE_MIN_WIDTH + m * (BACKBONE_MAX_WIDTH - BACKBONE_MIN_WIDTH)
-        color = lerp_color(m, LOW_COLOR, HIGH_COLOR)
-
-        body_parts.append(
-            f'<path d="{d}" '
-            f'stroke="{color}" '
-            f'stroke-width="{width:.2f}" '
-            f'opacity="{BACKBONE_OPACITY}" '
-            f'fill="none" '
-            f'stroke-linecap="round" '
-            f'stroke-linejoin="round"/>'
-        )
-
-    return svg_document("\n".join(body_parts))
+    return render_spec("layered_backbone", tubes=tubes)

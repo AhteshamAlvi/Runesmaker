@@ -1,83 +1,47 @@
-"""Multi-stroke render — one path per language, width scaled by magnitude.
+"""Multi-stroke — one tube per language, radius scaled by magnitude.
 
-Each streamline in RuneMap.curves is rendered as its own SVG path.
-Stroke width is derived from the corresponding GlyphVector.magnitude.
+Each streamline in `RuneMap.curves` becomes its own 3D tube. Tube radius
+is driven by the corresponding `GlyphVector.magnitude`:
 
-Effect:
-    - Complex scripts (high magnitude) → thick strokes
-    - Simple scripts → thin strokes
-    - Full field is visible (no clustering yet)
+    - Complex scripts (high magnitude) → thick tube
+    - Simple scripts (low magnitude)   → thin tube
 
-This is the first render that fully exposes the structure of the vector field.
+The cleanest reading of the raw field — every language gets a
+proportionally-weighted line in space.
 """
 
 from __future__ import annotations
 import numpy as np
 
 from pipeline.rune_map import RuneMap
-from pipeline.output.project import project
 from pipeline.output.render_methods._util import (
-    to_canvas,
-    polyline_d,
-    svg_document,
-    lerp_color,
+    tube_spec,
+    render_spec,
+    normalize_minmax,
 )
 
 
-# ── Configuration ────────────────────────────────────────────
+# ── Config ───────────────────────────────────────────────────────────────────
 
-MIN_WIDTH = 0.5
-MAX_WIDTH = 4.0
-
-LOW_COLOR  = (120, 120, 120)   # grey
-HIGH_COLOR = (0, 0, 0)         # black
+MIN_RADIUS = 0.006
+MAX_RADIUS = 0.030
+SIDES      = 8
 
 
-# ── Render ───────────────────────────────────────────────────
+# ── Render ───────────────────────────────────────────────────────────────────
 
-def render(rune_map: RuneMap) -> str:
-    """Render all streamlines with magnitude-scaled stroke width."""
+def render(rune_map: RuneMap) -> dict:
+    if not rune_map.curves:
+        return render_spec("multi_stroke")
 
-    curves = rune_map.curves
     mags   = np.array([v.magnitude for v in rune_map.vectors])
+    m_norm = normalize_minmax(mags)
 
-    if not curves:
-        return svg_document("")
+    tubes: list[dict] = []
+    for curve, m in zip(rune_map.curves, m_norm):
+        r = MIN_RADIUS + float(m) * (MAX_RADIUS - MIN_RADIUS)
+        t = tube_spec(curve, radius=r, sides=SIDES)
+        if t is not None:
+            tubes.append(t)
 
-    # Normalize magnitudes to [0,1]
-    m_min, m_max = mags.min(), mags.max()
-    denom = (m_max - m_min) if (m_max - m_min) > 1e-8 else 1.0
-    mags_norm = (mags - m_min) / denom
-
-    body_parts: list[str] = []
-
-    for curve, m in zip(curves, mags_norm):
-        # ── Project to 2D ──
-        # IMPORTANT: project expects RuneMap, but we want per-curve.
-        # So we manually take XY (same as orthographic).
-        pts_2d = curve[:, :2]
-
-        # ── Map to canvas ──
-        svg_pts = to_canvas(pts_2d)
-
-        # ── Build path ──
-        d = polyline_d(svg_pts)
-        if not d:
-            continue
-
-        # ── Style ──
-        width = MIN_WIDTH + m * (MAX_WIDTH - MIN_WIDTH)
-        color = lerp_color(m, LOW_COLOR, HIGH_COLOR)
-
-        body_parts.append(
-            f'<path d="{d}" '
-            f'stroke="{color}" '
-            f'stroke-width="{width:.2f}" '
-            f'fill="none" '
-            f'stroke-linecap="round" '
-            f'stroke-linejoin="round"/>'
-        )
-
-    body = "\n".join(body_parts)
-
-    return svg_document(body)
+    return render_spec("multi_stroke", tubes=tubes)

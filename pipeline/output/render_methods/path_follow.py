@@ -1,113 +1,110 @@
-"""Path-follow render — particle advection through the vector field.
+"""Path-follow — particle advection through the vector field.
 
-Instead of rendering precomputed streamlines (one per language), this
-method treats the RuneMap's vector field as a flow and traces particles
-through it, producing organic, drifting paths.
+Ignores the precomputed streamlines. Drops N particles at deterministic
+seeds, advects each forward + backward through the kernel-smoothed
+field (with a touch of Gaussian noise), and emits each trajectory as a
+tube whose radius tracks local field strength along the path.
 
-Effect:
-    - Lines follow the "currents" of the field
-    - Emergent structure (loops, swirls, divergence)
-    - Not tied to languages directly — tied to field dynamics
-
-This is closer to fluid simulation than static visualization.
+Feels organic — less "traced" and more "fluid-carried" than the other
+methods.
 """
 
 from __future__ import annotations
 import numpy as np
 
-from pipeline.rune_map import RuneMap, _build_field, _trace_streamline
+from pipeline.rune_map import RuneMap, _build_field
 from pipeline.output.render_methods._util import (
-    to_canvas,
-    polyline_d,
-    svg_document,
+    tube_spec,
+    render_spec,
+    normalize_minmax,
+    scaled_radii,
 )
 
 
-# ── Config ───────────────────────────────────────────────────
+# ── Config ───────────────────────────────────────────────────────────────────
 
-NUM_PATHS = 60        # number of particles / paths
-STEPS     = 180       # length of each path
-DT        = 0.04      # step size
+NUM_PATHS = 50
+STEPS     = 160
+DT        = 0.035
 
-STROKE_WIDTH = 1.2
-OPACITY      = 0.7
-COLOR        = "#000"
+MIN_RADIUS = 0.006
+MAX_RADIUS = 0.024
+SIDES      = 8
 
-# Seed strategy
-SEED_MODE = "uniform"   # "uniform" | "origin_bias"
-
-# Optional randomness
-NOISE_SCALE = 0.0       # try 0.05–0.15 later for more organic motion
+NOISE_SCALE  = 0.06          # 0 = clean, 0.05–0.1 = fluid-like
+MIN_ACTIVITY = 0.05          # drop paths that stagnate in the field
+SEED_MODE    = "origin_bias" # "uniform" | "origin_bias"
 
 
-# ── Seed generation ──────────────────────────────────────────
+# ── Deterministic RNG ────────────────────────────────────────────────────────
 
-def generate_seeds(rune_map: RuneMap) -> np.ndarray:
-    """Generate starting points for particles."""
-    if SEED_MODE == "origin_bias":
+def _make_rng(rune_map: RuneMap) -> np.random.Generator:
+    """Seed RNG from rune content — same rune renders identically every time."""
+    seed = len(rune_map.vectors) * 131 + int(
+        sum(v.magnitude for v in rune_map.vectors) * 1000
+    )
+    return np.random.default_rng(seed)
+
+
+# ── Seeds ────────────────────────────────────────────────────────────────────
+
+def _generate_seeds(rune_map: RuneMap, rng: np.random.Generator) -> np.ndarray:
+    if SEED_MODE == "origin_bias" and rune_map.vectors:
         origins = np.array([v.origin for v in rune_map.vectors])
-        idx = np.random.choice(len(origins), size=NUM_PATHS)
-        noise = 0.2 * np.random.randn(NUM_PATHS, 3)
+        idx     = rng.integers(0, len(origins), size=NUM_PATHS)
+        noise   = 0.25 * rng.standard_normal((NUM_PATHS, 3))
         return origins[idx] + noise
-
-    # default: uniform cube
-    return np.random.uniform(-1, 1, size=(NUM_PATHS, 3))
+    return rng.uniform(-1, 1, size=(NUM_PATHS, 3))
 
 
-# ── Custom tracer (adds optional noise) ──────────────────────
+# ── Tracing ──────────────────────────────────────────────────────────────────
 
-def trace_with_noise(V, start: np.ndarray) -> np.ndarray:
+def _trace(V, start: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Forward Euler with optional Gaussian noise. Stops on a dead field."""
     pts = []
-    pos = start.astype(np.float64).copy()
-
+    pos = start.copy()
     for _ in range(STEPS):
         v = V(pos)
-
-        if NOISE_SCALE > 0.0:
-            v = v + NOISE_SCALE * np.random.randn(3)
-
-        norm = np.linalg.norm(v)
-        if norm > 1e-8:
-            v = v / norm
-
-        pos = pos + DT * v
+        if NOISE_SCALE > 0:
+            v = v + NOISE_SCALE * rng.standard_normal(3)
+        mag = np.linalg.norm(v)
+        if mag < 1e-8:
+            break
+        pos = pos + DT * (v / mag)
         pts.append(pos.copy())
-
     return np.array(pts)
 
 
-# ── Render ───────────────────────────────────────────────────
+def _trace_bidirectional(V, start: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    forward  = _trace(V,               start, rng)
+    backward = _trace(lambda x: -V(x), start, rng)
+    if len(forward) == 0 or len(backward) == 0:
+        return forward
+    return np.vstack([backward[::-1], forward])
 
-def render(rune_map: RuneMap) -> str:
-    # Build the vector field from glyph vectors
-    V = _build_field(rune_map.vectors)
 
-    # Generate starting points
-    seeds = generate_seeds(rune_map)
+# ── Render ───────────────────────────────────────────────────────────────────
 
-    body_parts: list[str] = []
+def render(rune_map: RuneMap) -> dict:
+    rng   = _make_rng(rune_map)
+    V     = _build_field(rune_map.vectors)
+    seeds = _generate_seeds(rune_map, rng)
+
+    tubes: list[dict] = []
 
     for seed in seeds:
-        curve = trace_with_noise(V, seed)
-
-        # Project (orthographic for now)
-        pts_2d = curve[:, :2]
-
-        # Map to canvas
-        pts_canvas = to_canvas(pts_2d)
-
-        d = polyline_d(pts_canvas)
-        if not d:
+        curve = _trace_bidirectional(V, seed, rng)
+        if len(curve) < 10:
             continue
 
-        body_parts.append(
-            f'<path d="{d}" '
-            f'stroke="{COLOR}" '
-            f'stroke-width="{STROKE_WIDTH}" '
-            f'opacity="{OPACITY}" '
-            f'fill="none" '
-            f'stroke-linecap="round" '
-            f'stroke-linejoin="round"/>'
-        )
+        # Per-point field magnitude → per-point radius.
+        field_mags = np.array([np.linalg.norm(V(p)) for p in curve])
+        if float(np.mean(field_mags)) < MIN_ACTIVITY:
+            continue
+        radii = scaled_radii(field_mags, MIN_RADIUS, MAX_RADIUS)
 
-    return svg_document("\n".join(body_parts))
+        t = tube_spec(curve, radii=radii, sides=SIDES)
+        if t is not None:
+            tubes.append(t)
+
+    return render_spec("path_follow", tubes=tubes)

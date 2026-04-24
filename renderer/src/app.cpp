@@ -166,7 +166,7 @@ void App::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex) {
     vkBeginCommandBuffer(cmd, &beginInfo);
 
     VkClearValue clearValues[2]{};
-    clearValues[0].color = {{0.02f, 0.02f, 0.05f, 1.0f}}; // dark background
+    clearValues[0].color = {{0.067f, 0.078f, 0.094f, 1.0f}}; // #111418 — matches 2D SVG bg
     clearValues[1].depthStencil = {1.0f, 0};
 
     VkRenderPassBeginInfo rpBegin{};

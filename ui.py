@@ -201,7 +201,7 @@ class RunesmakerApp:
             state="readonly", width=16,
         )
         self.render_method_dd.pack(side="left", padx=(6, 0))
-        ttk.Label(stage3_row, text="— render 3D rune in Vulkan", foreground="gray").pack(side="left", padx=(8, 0))
+        ttk.Label(stage3_row, text="— render 2D SVG + orbit in 3D", foreground="gray").pack(side="left", padx=(8, 0))
 
         self._populate_method_dropdowns()
 
@@ -1069,25 +1069,71 @@ class RunesmakerApp:
         self.status_var.set(f"Project error: {msg}")
         self.project_btn.config(state="normal")
 
-    # --- Stage 3: Render 3D Vulkan ---
+    # --- Stage 3: Build a 3D render spec and open it in the Vulkan viewer ---
 
     def _render(self):
         if not self.generated_json_path or not os.path.isfile(self.generated_json_path):
-            messagebox.showerror("Missing JSON", "Project to 2D first.")
+            messagebox.showerror("No map", "Generate a 3D map first.")
             return
 
-        if not os.path.isfile(RENDERER_BIN):
-            messagebox.showinfo(
-                "Renderer not built",
-                f"The renderer binary was not found at:\n{RENDERER_BIN}\n\n"
-                "Build it with:\n"
-                "  cd renderer && mkdir -p build && cd build && cmake .. && make"
+        name = self.name_var.get().strip()
+        if not name:
+            messagebox.showwarning("Missing name", "Enter a rune name first.")
+            return
+
+        method = self.render_method_var.get()
+        if not method or method == "(none)":
+            messagebox.showerror(
+                "No render method",
+                "No render methods are registered in pipeline/output/render_methods/."
             )
             return
 
         self.render_btn.config(state="disabled")
-        self.status_var.set("Rendering 3D rune...")
-        threading.Thread(target=self._run_renderer, args=(self.generated_json_path, "render_btn"), daemon=True).start()
+        self.status_var.set(f"Rendering ({method})…")
+
+        rune_dir = os.path.join(OUTPUT_DIR, f"{name} Rune")
+        threading.Thread(
+            target=self._run_render,
+            args=(self.generated_json_path, rune_dir, name, method),
+            daemon=True,
+        ).start()
+
+    def _run_render(self, json_path, rune_dir, name, method):
+        """Produce a method-specific 3D render spec JSON and hand it to Vulkan.
+
+        No SVG is generated. The render method emits a list of 3D tubes
+        and spheres; the Vulkan viewer draws those primitives directly.
+        """
+        try:
+            from pipeline.output.export import load_map
+            from pipeline.output.render import save_render
+
+            os.makedirs(rune_dir, exist_ok=True)
+            rune_map  = load_map(json_path)
+            spec_path = os.path.join(rune_dir, f"{name}__{method}.json")
+            save_render(rune_map, spec_path, method=method)
+
+            self.root.after(0, self._render_done, spec_path, method)
+
+        except Exception as e:
+            self.root.after(0, self._render_error, str(e))
+
+    def _render_done(self, spec_path, method):
+        self.status_var.set(f"{method} → launching 3D viewer…")
+        # Hand the method's spec JSON to the Vulkan renderer. The button
+        # stays disabled until the viewer window closes (see _renderer_done).
+        threading.Thread(
+            target=self._run_renderer,
+            args=(spec_path, "render_btn"),
+            daemon=True,
+        ).start()
+
+    def _render_error(self, msg):
+        self.status_var.set(f"Render error: {msg}")
+        self.render_btn.config(state="normal")
+
+    # --- Legacy: launch Vulkan viewer on a JSON path ---
 
     def _run_renderer(self, json_path, btn_attr):
         """Launch the Vulkan renderer on any JSON path (map or full)."""
@@ -1127,8 +1173,13 @@ class RunesmakerApp:
 
     # --- SVG Preview Popup ---
 
-    def _open_preview(self, svg_path):
-        """Open a new window showing the rune SVG preview."""
+    def _open_preview(self, svg_path, png_bytes=None):
+        """Open a new window showing the rune SVG preview.
+
+        If `png_bytes` is provided, use it directly (already rasterized on a
+        worker thread). Otherwise rasterize inline — kept as a fallback for
+        callers that don't pre-render.
+        """
         name = self.name_var.get().strip() or "Rune"
 
         win = tk.Toplevel(self.root)
@@ -1137,14 +1188,15 @@ class RunesmakerApp:
         win.resizable(True, True)
 
         try:
-            import cairosvg
             from PIL import Image, ImageTk
 
-            png_data = cairosvg.svg2png(
-                url=svg_path, output_width=460, output_height=460,
-                background_color="black"
-            )
-            image = Image.open(io.BytesIO(png_data))
+            if png_bytes is None:
+                import cairosvg
+                png_bytes = cairosvg.svg2png(
+                    url=svg_path, output_width=460, output_height=460,
+                    background_color="#111418",
+                )
+            image = Image.open(io.BytesIO(png_bytes))
             photo = ImageTk.PhotoImage(image)
 
             label = ttk.Label(win, image=photo)

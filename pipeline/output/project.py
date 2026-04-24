@@ -25,11 +25,11 @@ Each projection method is a single module inside
 
 To add a new method:
     1. Create `pipeline/output/project_methods/<name>.py`
-       with a `project()` function.
-    2. Import it below and register it in `_REGISTRY`
-       under a short key.
-    3. Optionally set `CURRENT_METHOD = "<name>"` to make
-       it the default.
+       with a `project(rune_map) -> np.ndarray` function.
+    2. (Optional) Set `CURRENT_METHOD = "<name>"` below to
+       make it the default.
+    Auto-discovery handles the rest — the UI dropdown picks it
+    up on next launch without any code changes.
 
 Design principles
 -----------------

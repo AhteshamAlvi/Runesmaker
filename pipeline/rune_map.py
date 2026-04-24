@@ -16,8 +16,9 @@ Pipeline
   N streamlines    — one per language, starting from that language's origin
   1 blended        — starting from the centroid of all origins
        │
-       ├──▶ project.py  → 2D SVG
-       └──▶ export.py   → JSON for C++ renderer (tube sweep on blended)
+       ├──▶ output/project.py  → 2D coords (N, 2) in [-1, 1]
+       │      └──▶ output/render_methods/*  → SVG documents
+       └──▶ output/export.py   → JSON for C++ renderer (tube sweep on blended)
 
 Kernel bandwidth σ = median pairwise distance between origins.
 Each vector has local influence — the field near origin_i follows direction_i,
