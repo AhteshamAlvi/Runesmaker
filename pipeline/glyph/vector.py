@@ -46,7 +46,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import numpy as np
-from pipeline.glyph_extract import GlyphContour
+from pipeline.glyph.extract import GlyphContour
 
 
 # Hash-based magnitude perturbation strength.

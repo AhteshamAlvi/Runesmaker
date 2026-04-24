@@ -28,8 +28,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 
-from pipeline.glyph_extract import GlyphContour
-from pipeline.glyph_vector import GlyphVector, compute_all_vectors
+from pipeline.glyph.extract import GlyphContour
+from pipeline.glyph.vector import GlyphVector, compute_all_vectors
 
 
 # ── Data model ────────────────────────────────────────────────────────────────

@@ -357,7 +357,7 @@ class RunesmakerApp:
 
     def _run_auto_translate(self, word):
         try:
-            from pipeline.auto_translate import auto_translate
+            from pipeline.input.auto_translate import auto_translate
 
             def on_progress(done, total):
                 pct = int(done / total * 100)
@@ -542,10 +542,10 @@ class RunesmakerApp:
 
     def _run_generate(self, csv_path, name):
         try:
-            from pipeline.loader import load_translations
-            from pipeline.glyph_extract import extract_glyphs
+            from pipeline.input.loader import load_translations
+            from pipeline.glyph.extract import extract_glyphs
             from pipeline.rune_map import build_rune_map
-            from pipeline.export import save_map
+            from pipeline.output.export import save_map
 
             rune_dir = os.path.join(OUTPUT_DIR, f"{name} Rune")
             os.makedirs(rune_dir, exist_ok=True)
@@ -608,7 +608,7 @@ class RunesmakerApp:
         import colorsys
         import numpy as np
         from pipeline.rune_map import _build_proximity_field
-        from pipeline.glyph_vector import GlyphVector
+        from pipeline.glyph.vector import GlyphVector
 
         with open(self.generated_json_path) as f:
             data = json.load(f)
@@ -978,8 +978,8 @@ class RunesmakerApp:
 
     def _run_project(self, json_path, rune_dir, name):
         try:
-            from pipeline.project import project
-            from pipeline.export import load_map, save_svg, save_json
+            from pipeline.output.project import project
+            from pipeline.output.export import load_map, save_svg, save_json
 
             rune_map = load_map(json_path)
             proj_2d  = project(rune_map)

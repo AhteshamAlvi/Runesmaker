@@ -3,11 +3,11 @@
 import argparse
 import os
 
-from pipeline.loader import load_translations
-from pipeline.glyph_extract import extract_glyphs
+from pipeline.input.loader import load_translations
+from pipeline.glyph.extract import extract_glyphs
 from pipeline.rune_map import build_rune_map
-from pipeline.project import project
-from pipeline.export import save_svg, save_json
+from pipeline.output.project import project
+from pipeline.output.export import save_svg, save_json
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
 

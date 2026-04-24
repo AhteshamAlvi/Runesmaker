@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import numpy as np
 from pipeline.rune_map import RuneMap
-from pipeline.glyph_vector import GlyphVector
+from pipeline.glyph.vector import GlyphVector
 
 
 # ── SVG ──────────────────────────────────────────────────────────────────────
