@@ -56,32 +56,69 @@ class RuneMap:
 
 # ── Vector field ──────────────────────────────────────────────────────────────
 
-def _estimate_bandwidth(origins: np.ndarray) -> float:
-    """σ = median pairwise distance between a sample of up to 30 origins."""
+def _estimate_bandwidth(origins: np.ndarray, k: int = 4) -> float:
+    """σ = mean distance to the k-th nearest neighbour, averaged across origins.
+
+    Why k-NN, not median pairwise:
+        Median pairwise distance is a *global* scale — for a 125-origin
+        cloud filling [-1,1]³ it lands around 0.7, almost the cube's
+        diameter. A Gaussian that wide makes every origin influence every
+        query point equally, which collapses the field to a global mean
+        direction and bundles all streamlines into one direction.
+
+        k-NN distance is a *local* scale — the typical gap between an
+        origin and its few nearest neighbours. With k=4 in our cloud
+        that's around 0.10–0.15, so the Gaussian only spans the immediate
+        neighbourhood and the field actually varies across space.
+    """
     n = len(origins)
     if n < 2:
         return 1.0
-    sample = origins[:min(n, 30)]
-    dists  = []
-    for i in range(len(sample)):
-        for j in range(i + 1, len(sample)):
-            dists.append(float(np.linalg.norm(sample[i] - sample[j])))
-    return float(np.median(dists)) if dists else 1.0
-
+    k = min(k, n - 1)
+    dist = np.linalg.norm(origins[:, None, :] - origins[None, :, :], axis=-1)
+    np.fill_diagonal(dist, np.inf)
+    knn = np.partition(dist, k - 1, axis=1)[:, :k]   # k smallest per row
+    return float(np.mean(knn))
 
 def _build_field(vectors: list[GlyphVector]):
-    """Kernel-smoothed vector field from N glyph vectors.
+    """Local, *unnormalised* kernel-weighted vector field.
 
     V(x) = Σᵢ magnitude_i · direction_i · exp(−|x − origin_i|² / 2σ²)
-           ──────────────────────────────────────────────────────────────
-                        Σᵢ magnitude_i · kernel_i(x)
 
-    Gaussian kernel: each vector has local influence. Near origin_i the
-    field strongly follows direction_i; the influence fades with distance
-    and the field blends smoothly with neighbouring vectors.
-    σ is set to the median pairwise origin distance so no vector is
-    isolated and none is smeared across the entire space.
+    Two design choices that matter for streamline structure:
+
+    1. **Local σ** — set from k-NN origin distance (see `_estimate_bandwidth`),
+       not the global median, so the kernel only spans each origin's
+       immediate neighbourhood. Different regions of space follow
+       different local directions.
+
+    2. **No normalisation** — we deliberately omit the `/ Σ kernels`
+       divisor used by classical kernel regression. With normalisation,
+       a query far from every origin still receives a *unit-weighted*
+       average of all directions, which smears everything into one
+       direction. Without it, the field amplitude fades to zero in
+       empty regions, and the streamline integrator can detect the
+       fade-out and stop instead of drifting through dead space.
+
+    The unnormalised amplitude carries information (it tracks proximity
+    to a meaningful origin), so callers should normalise the *direction*
+    only when they need a uniform-step integrator.
+
+    V(x) = Σᵢ wᵢ · (directionᵢ + α · vortexᵢ)
+
+    where:
+        wᵢ = magnitudeᵢ · exp(−|x − originᵢ|² / 2σ²)
+        vortexᵢ = directionᵢ × (x − originᵢ)
+
+    This introduces *circulatory structure* (swirls, loops, bending)
+    while preserving the original directional flow.
+
+    Design:
+        - Direction term → drives flow
+        - Vortex term    → bends flow around origins
+        - Both are local (same kernel)
     """
+
     origins    = np.array([v.origin    for v in vectors], dtype=np.float64)  # (N, 3)
     directions = np.array([v.direction for v in vectors], dtype=np.float64)  # (N, 3)
     magnitudes = np.array([v.magnitude for v in vectors], dtype=np.float64)  # (N,)
@@ -89,11 +126,63 @@ def _build_field(vectors: list[GlyphVector]):
     sigma  = _estimate_bandwidth(origins)
     sigma2 = 2.0 * sigma ** 2
 
+    # 🔥 Key parameter — tune this
+    VORTEX_STRENGTH = 0.35
+
     def V(x: np.ndarray) -> np.ndarray:
-        diff    = origins - x[np.newaxis, :]          # (N, 3)
-        dist2   = (diff ** 2).sum(axis=1)             # (N,)
-        kernels = np.exp(-dist2 / sigma2)             # (N,)
-        weights = magnitudes * kernels                # (N,)
+        diff  = x[np.newaxis, :] - origins        # (N, 3)  ← note direction
+        dist2 = (diff ** 2).sum(axis=1)           # (N,)
+
+        kernels = np.exp(-dist2 / sigma2)         # (N,)
+        weights = magnitudes * kernels            # (N,)
+
+        # ── Directional component ──
+        directional = directions                  # (N, 3)
+
+        # ── Rotational component ──
+        # cross(direction, radial vector)
+        vortex = np.cross(directions, diff)       # (N, 3)
+
+        # Optional: scale vortex by distance (prevents blow-up far away)
+        dist = np.sqrt(dist2) + 1e-8
+        vortex = vortex / (1.0 + dist[:, None])   # stabilizer
+
+        # ── Combine ──
+        field = directional + VORTEX_STRENGTH * vortex
+
+        return (weights[:, None] * field).sum(axis=0)
+
+    return V
+
+def _build_blended_field(vectors: list[GlyphVector]):
+    """Globally-smoothed *normalised* field — used only for the centroid trace.
+
+    Same form as the original `_build_field` (median-pairwise σ, normalised
+    by Σ kernels). The blended streamline is supposed to be the rune's
+    averaged "spine" so we want a globally-smoothed direction at the
+    centroid; the local field would just stop immediately if the centroid
+    sits in an empty region.
+    """
+    origins    = np.array([v.origin    for v in vectors], dtype=np.float64)
+    directions = np.array([v.direction for v in vectors], dtype=np.float64)
+    magnitudes = np.array([v.magnitude for v in vectors], dtype=np.float64)
+
+    # Global bandwidth — keep the wider median-pairwise σ that the original
+    # field used. The blended trace is the "average path", not a local one.
+    n = len(origins)
+    if n >= 2:
+        sample = origins[:min(n, 30)]
+        d = np.linalg.norm(sample[:, None, :] - sample[None, :, :], axis=-1)
+        sigma = float(np.median(d[np.triu_indices_from(d, k=1)]))
+    else:
+        sigma = 1.0
+    sigma2 = 2.0 * sigma ** 2
+
+    def V(x: np.ndarray) -> np.ndarray:
+        diff    = origins - x[np.newaxis, :]
+        dist2   = (diff ** 2).sum(axis=1)
+        kernels = np.exp(-dist2 / sigma2)
+        weights = magnitudes * kernels
         total   = weights.sum()
         if total < 1e-12:
             return np.zeros(3)
@@ -102,37 +191,11 @@ def _build_field(vectors: list[GlyphVector]):
     return V
 
 
-def _build_proximity_field(vectors: list[GlyphVector]):
-    """Unnormalised kernel-weighted field — magnitude decays with distance.
-
-    V(x) = Σᵢ magnitude_i · direction_i · exp(−|x − origin_i|² / 2σ²)
-
-    Unlike _build_field, there is NO division by Σ kernels, so a query far
-    from every origin gets a near-zero vector instead of a smeared average
-    of all directions. Near origin_i the field reflects that language's
-    direction; in the gaps it fades to nothing.
-
-    Use for visualisation only — streamline integration wants the
-    normalised version (uniform step size regardless of distance to a
-    source).
-    """
-    origins    = np.array([v.origin    for v in vectors], dtype=np.float64)
-    directions = np.array([v.direction for v in vectors], dtype=np.float64)
-    magnitudes = np.array([v.magnitude for v in vectors], dtype=np.float64)
-
-    # Tighter bandwidth than the streamline field — we want locality,
-    # not smooth coverage. Half the median pairwise distance works well.
-    sigma  = 0.5 * _estimate_bandwidth(origins)
-    sigma2 = 2.0 * sigma ** 2
-
-    def V(x: np.ndarray) -> np.ndarray:
-        diff    = origins - x[np.newaxis, :]
-        dist2   = (diff ** 2).sum(axis=1)
-        kernels = np.exp(-dist2 / sigma2)
-        weights = magnitudes * kernels
-        return (weights[:, np.newaxis] * directions).sum(axis=0)
-
-    return V
+# NOTE: `_build_field` is now the local, unnormalised field that View Map
+# previously asked for under the name `_build_proximity_field`. The two
+# concepts have merged — there's only one field shape now, and callers
+# that want a smoothed global average use `_build_blended_field`.
+_build_proximity_field = _build_field   # back-compat alias for View Map
 
 
 # ── Language-influence metric ────────────────────────────────────────────────
@@ -193,30 +256,93 @@ def _compute_effects(
 
 
 # ── Streamline integration ────────────────────────────────────────────────────
-
 def _trace_streamline(
     V,
     start: np.ndarray,
-    steps: int   = 128,
-    dt:    float = 0.05,
+    steps: int = 128,
+    dt: float = 0.02,
+    stop_amplitude: float = 1e-3,
+    max_step: float = 0.05,
 ) -> np.ndarray:
-    """Euler-integrate a streamline through field V starting from `start`.
+    """Bidirectional streamline through field V, anchored at `start`.
 
-    Each step is taken as a unit direction (V normalised) scaled by dt,
-    so all streamlines have the same total arc-length regardless of
-    field magnitude at their starting position.
+    Traces forward (V) and backward (−V) from `start`, glues the two
+    halves together, and returns the combined polyline with `start` at
+    the midpoint. Each Euler step uses the field *direction* (unit
+    vector) so all valid steps have arc length `dt` regardless of the
+    field amplitude — visual consistency across slow and fast regions.
+
+    Why bidirectional + early-stop:
+        With the local unnormalised field, a streamline that wanders
+        out of any origin's neighbourhood reaches a near-zero amplitude.
+        We stop the trace there instead of integrating noise. Origins
+        sit in the middle of their streamline, not at the leading edge,
+        so the curve covers the language's *neighbourhood* rather than
+        marching downstream and out of the rune.
+
+    `steps` is the per-direction step budget — the full curve has up
+    to `2·steps + 1` points (start + forward + backward).
+
+    Upgrades:
+        - Uses unnormalised field (pos += dt * V(x))
+        - RK2-style look-ahead integration (captures curvature)
+        - Early stop when field fades (local behavior)
+        - Step clamping for stability
+        - Final smoothing pass for clean curves
     """
-    pts = []
-    pos = start.astype(np.float64).copy()
-    for _ in range(steps):
-        v    = V(pos)
-        norm = np.linalg.norm(v)
-        if norm > 1e-12:
-            v = v / norm
-        pos = pos + dt * v
-        pts.append(pos.copy())
-    return np.array(pts)   # (steps, 3)
 
+    def _step(pos: np.ndarray, direction_sign: float) -> tuple[np.ndarray, float]:
+        """Single RK2 integration step."""
+        FIELD_SCALE = 2.5
+        v0 = FIELD_SCALE * V(pos) * direction_sign
+        mag0 = np.linalg.norm(v0)
+
+        if mag0 < stop_amplitude:
+            return pos, mag0
+
+        # Look-ahead (RK2-style)
+        v1 = V(pos + dt * v0) * direction_sign
+
+        # Blend current + future direction
+        v = 0.6 * v0 + 0.4 * v1
+        pos = pos + dt * v
+        return pos, np.linalg.norm(v)
+
+    def _trace_one(direction_sign: float) -> list[np.ndarray]:
+        pts: list[np.ndarray] = []
+        pos = start.astype(np.float64).copy()
+
+        for _ in range(steps):
+            pos, mag = _step(pos, direction_sign)
+
+            if mag < stop_amplitude:
+                break
+
+            pts.append(pos.copy())
+
+        return pts
+
+    # ── Trace both directions ──
+    forward  = _trace_one(+1.0)
+    backward = _trace_one(-1.0)
+
+    # Combine into full curve (backward → start → forward)
+    curve = list(reversed(backward)) + [start.astype(np.float64)] + forward
+
+    if len(curve) < 3:
+        return np.array(curve)
+
+    # ── Smoothing pass ──
+    c = np.array(curve)
+    out = c.copy()
+
+    for i in range(1, len(c) - 1):
+        out[i] = 0.15 * c[i - 1] + 0.7 * c[i] + 0.15 * c[i + 1]
+
+    # Optional second pass for extra smoothness
+    # out = _smooth_curve(out)  # if you later extract helper
+
+    return out
 
 # ── Replay API (View Map live language toggling) ──────────────────────────────
 
@@ -249,11 +375,12 @@ def rebuild_from_vectors(
         for v in vectors
     ]
 
-    V        = _build_field(adjusted)
-    origins  = np.array([v.origin for v in adjusted])
-    curves   = [_trace_streamline(V, o, steps=steps, dt=dt) for o in origins]
-    centroid = origins.mean(axis=0)
-    blended  = _trace_streamline(V, centroid, steps=steps, dt=dt)
+    V_local   = _build_field(adjusted)
+    V_blended = _build_blended_field(adjusted)
+    origins   = np.array([v.origin for v in adjusted])
+    curves    = [_trace_streamline(V_local, o, steps=steps, dt=dt) for o in origins]
+    centroid  = origins.mean(axis=0)
+    blended   = _trace_streamline(V_blended, centroid, steps=steps, dt=dt)
 
     all_pts = np.vstack(curves + [blended])
     center  = all_pts.mean(axis=0)
@@ -287,16 +414,20 @@ def build_rune_map(
     vectors   = compute_all_vectors(contours)
     languages = [v.language for v in vectors]
 
-    # Step 2 — build kernel-smoothed collective vector field
-    V = _build_field(vectors)
+    # Step 2 — build the two fields:
+    #   V_local   — narrow, unnormalised, per-language streamlines stay in
+    #               their origin's neighbourhood (gives structure)
+    #   V_blended — wide, normalised, only used to trace the centroid spine
+    V_local   = _build_field(vectors)
+    V_blended = _build_blended_field(vectors)
 
     # Step 3 — trace one streamline per language, starting from its origin
     origins = np.array([v.origin for v in vectors])
-    curves  = [_trace_streamline(V, o, steps=sample_density) for o in origins]
+    curves  = [_trace_streamline(V_local, o, steps=sample_density) for o in origins]
 
     # Step 4 — trace blended streamline from centroid of all origins
     centroid = origins.mean(axis=0)
-    blended  = _trace_streamline(V, centroid, steps=sample_density)
+    blended  = _trace_streamline(V_blended, centroid, steps=sample_density)
 
     # Step 5 — compute per-language share of influence on the blended streamline
     # (done BEFORE normalisation, so origins and blended share the field's

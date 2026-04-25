@@ -1,12 +1,16 @@
-"""Path-follow — particle advection through the vector field.
+"""Path-follow — re-trace each language's streamline with noisy advection.
 
-Ignores the precomputed streamlines. Drops N particles at deterministic
-seeds, advects each forward + backward through the kernel-smoothed
-field (with a touch of Gaussian noise), and emits each trajectory as a
-tube whose radius tracks local field strength along the path.
+Same rule as every other render method: one line per vector, each line
+rooted at that vector's origin (the 125 GlyphVector origins). Where
+this method differs from `multi_stroke` is the *trace* — instead of
+using `rune_map.curves` (clean Euler integration), it re-advects each
+particle through the kernel-smoothed field with a touch of Gaussian
+noise, and extends bidirectionally so the origin sits in the middle
+of the trace.
 
-Feels organic — less "traced" and more "fluid-carried" than the other
-methods.
+Result: an organic, fluid-carried take on the same 125-line skeleton
+the other methods draw. Per-point tube radius tracks local field
+strength so calm zones thin out while turbulent ones swell.
 """
 
 from __future__ import annotations
@@ -16,16 +20,14 @@ from pipeline.rune_map import RuneMap, _build_field
 from pipeline.output.render_methods._util import (
     tube_spec,
     render_spec,
-    normalize_minmax,
     scaled_radii,
 )
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-NUM_PATHS = 50
-STEPS     = 160
-DT        = 0.035
+STEPS = 160
+DT    = 0.035
 
 MIN_RADIUS = 0.006
 MAX_RADIUS = 0.024
@@ -33,7 +35,6 @@ SIDES      = 8
 
 NOISE_SCALE  = 0.06          # 0 = clean, 0.05–0.1 = fluid-like
 MIN_ACTIVITY = 0.05          # drop paths that stagnate in the field
-SEED_MODE    = "origin_bias" # "uniform" | "origin_bias"
 
 
 # ── Deterministic RNG ────────────────────────────────────────────────────────
@@ -44,17 +45,6 @@ def _make_rng(rune_map: RuneMap) -> np.random.Generator:
         sum(v.magnitude for v in rune_map.vectors) * 1000
     )
     return np.random.default_rng(seed)
-
-
-# ── Seeds ────────────────────────────────────────────────────────────────────
-
-def _generate_seeds(rune_map: RuneMap, rng: np.random.Generator) -> np.ndarray:
-    if SEED_MODE == "origin_bias" and rune_map.vectors:
-        origins = np.array([v.origin for v in rune_map.vectors])
-        idx     = rng.integers(0, len(origins), size=NUM_PATHS)
-        noise   = 0.25 * rng.standard_normal((NUM_PATHS, 3))
-        return origins[idx] + noise
-    return rng.uniform(-1, 1, size=(NUM_PATHS, 3))
 
 
 # ── Tracing ──────────────────────────────────────────────────────────────────
@@ -86,14 +76,20 @@ def _trace_bidirectional(V, start: np.ndarray, rng: np.random.Generator) -> np.n
 # ── Render ───────────────────────────────────────────────────────────────────
 
 def render(rune_map: RuneMap) -> dict:
-    rng   = _make_rng(rune_map)
-    V     = _build_field(rune_map.vectors)
-    seeds = _generate_seeds(rune_map, rng)
+    if not rune_map.vectors:
+        return render_spec("path_follow")
+
+    rng = _make_rng(rune_map)
+    V   = _build_field(rune_map.vectors)
+
+    # One line per vector, seeded at that vector's origin — same rule as
+    # every other render method. The origin sits at the midpoint of the
+    # bidirectional trace.
+    origins = np.array([v.origin for v in rune_map.vectors])
 
     tubes: list[dict] = []
-
-    for seed in seeds:
-        curve = _trace_bidirectional(V, seed, rng)
+    for origin in origins:
+        curve = _trace_bidirectional(V, origin, rng)
         if len(curve) < 10:
             continue
 
