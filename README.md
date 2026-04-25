@@ -1,6 +1,6 @@
 # Runesmaker
 
-Generate a unique 3D rune for any word, by translating it into 124 languages, deriving one 3D vector per language from the shape of its written form, smoothing those vectors into a continuous field, tracing curves through the field, and rendering the result as a tube-swept mesh in a Vulkan viewer.
+Generate a unique 3D rune for any word, by translating it into 125 languages, deriving one 3D vector per language from the shape of its written form, smoothing those vectors into a continuous field, tracing curves through the field, and rendering the result as a tube-swept mesh in a Vulkan viewer.
 
 The same word always produces the same rune. Different words produce different runes. The construction is deterministic from beginning to end — every random choice is seeded by a hash of either the word, the language, or both.
 
@@ -32,19 +32,19 @@ This README walks the entire pipeline top-to-bottom, with the math at every step
        word
         │
         ▼  pipeline/input/auto_translate.py
-  124 translations              { language → translated word }
+  125 translations              { language → translated word }
         │
         ▼  pipeline/glyph/extract.py     (HarfBuzz + fontTools)
-  124 GlyphContours             { ops, width, height } per language
+  125 GlyphContours             { ops, width, height } per language
         │
         ▼  pipeline/glyph/vector.py
-  124 GlyphVectors              ( origin ∈ ℝ³, direction ∈ S², magnitude ∈ [0,1] )
+  125 GlyphVectors              ( origin ∈ ℝ³, direction ∈ S², magnitude ∈ [0,1] )
         │
         ▼  pipeline/rune_map.py        _build_field()
   V : ℝ³ → ℝ³                   kernel-smoothed vector field
         │
         ▼  pipeline/rune_map.py        _trace_streamline()
-  124 streamlines + 1 blended   bidirectional Euler/RK2 integration
+  125 streamlines + 1 blended   bidirectional Euler/RK2 integration
         │
         ▼  pipeline/output/render_methods/<name>.py
   v5 render spec                { tubes:[…], spheres:[…] }    (JSON)
@@ -64,11 +64,11 @@ Each stage is purely a function of the previous one — there is no shared state
 
 **Files**: `pipeline/input/auto_translate.py`, `pipeline/input/loader.py`, `translations/languages.txt`
 
-The input word is translated into 124 languages via Google Translate (`deep_translator.GoogleTranslator`). A small `SPECIAL_CASES` table overrides or skips a few languages where the default mapping is wrong (e.g. Kurdish is forced to Sorani `ckb`; Punjabi-Shahmukhi and Malay-Jawi are skipped because their target codes don't exist in Google Translate).
+The input word is translated into 125 languages via Google Translate (`deep_translator.GoogleTranslator`). A small `SPECIAL_CASES` table overrides or skips a few languages where the default mapping is wrong (e.g. Kurdish is forced to Sorani `ckb`; Punjabi-Shahmukhi and Malay-Jawi are skipped because their target codes don't exist in Google Translate).
 
 Output is a CSV with two columns: `language, translation`. The CSV is the canonical record of a rune's input — the rest of the pipeline reads from it, so editing the CSV by hand re-shapes the rune in a controlled way.
 
-There is no math here, just I/O. The language list (`translations/languages.txt`, 124 entries) is the universe; everything downstream is sized by it.
+There is no math here, just I/O. The master language list lives in `translations/languages.txt` (**125 entries** including English and script variants like "Punjabi (Gurmukhi)"). Real runes in `output/` have **125 vectors** to match — the count is fixed unless some translations come back empty (rare for normal words) or you edit the master list.
 
 ---
 
@@ -229,7 +229,7 @@ The combined effect: same glyph shape but different word → same frame but diff
 
 ### 3c. Magnitude: rank-normalised arc length + stroke count, with hash perturbation
 
-A two-pass computation over all 124 contours.
+A two-pass computation over all 125 contours.
 
 **Pass 1** — per-contour scalars:
 
@@ -260,7 +260,7 @@ The perturbation `EPSILON · h` is intentionally small (`±10%`) so that base st
 
 **File**: `pipeline/rune_map.py` — `_build_field`, `_build_blended_field`
 
-We have 124 `(origin, direction, magnitude)` samples; we want a continuous function `V : ℝ³ → ℝ³` so we can integrate streamlines through it. There are **two different fields** because the per-language streamlines and the centroid streamline want very different things from `V`.
+We have 125 `(origin, direction, magnitude)` samples; we want a continuous function `V : ℝ³ → ℝ³` so we can integrate streamlines through it. There are **two different fields** because the per-language streamlines and the centroid streamline want very different things from `V`.
 
 ### 4a. Local, unnormalised field (per-language streamlines)
 
@@ -516,12 +516,12 @@ Result: tangled field becomes a node-and-edge structure with the junctions calle
 
 ### 7f. skeleton
 
-Draws *explicit connectivity* between the 124 origins as a graph. Three topology choices, all running through the same Hermite spline edge code:
+Draws *explicit connectivity* between the 125 origins as a graph. Three topology choices, all running through the same Hermite spline edge code:
 
 ```
 TOPOLOGY = "knn"   →  K-NN graph  (default, K = 4 → ≈ 335 edges)
-           "mst"   →  Euclidean minimum spanning tree  (124 − 1 = 123 edges)
-           "kmst"  →  MST + KMST_EXTRAS shortest non-MST edges  (123 + 18 = 141 edges)
+           "mst"   →  Euclidean minimum spanning tree  (N − 1 = 124 edges)
+           "kmst"  →  MST + KMST_EXTRAS shortest non-MST edges  (124 + 18 = 142 edges)
 ```
 
 **K-NN**: standard symmetric k-nearest-neighbour graph from the pairwise distance matrix.
@@ -741,7 +741,7 @@ A Tkinter GUI orchestrates the pipeline in three stages:
 ```
 1. Translate
    ─ enter a word, click Auto-Translate → CSV at translations/<word>.csv
-   ─ or fill the language dropdown by hand (124 entries)
+   ─ or fill the language dropdown by hand (125 entries)
 
 2. Generate
    ─ Generate button:  CSV → extract_glyphs → compute_all_vectors
@@ -802,7 +802,7 @@ Runesmaker/
 │       └── rune.frag                      ← white material, basic Phong
 │
 ├── translations/
-│   ├── languages.txt                      ← 124 language names
+│   ├── languages.txt                      ← 125 language names
 │   └── <word>.csv                         ← per-word translation table
 │
 ├── output/
